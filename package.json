@@ -20,5 +20,13 @@
   "main": "index.js",
   "repository": "git://github.com/wlodzislav/kill-with-style.git",
   "author": "Vladislav Kaminsky <wlodzislav@ya.ru>",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "commander": "^2.19.0",
+    "mocha": "^5.2.0"
+  },
+  "dependencies": {
+    "async": "^2.6.1",
+    "ps-tree": "^1.2.0"
+  }
 }
