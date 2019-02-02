@@ -32,6 +32,7 @@ if (isSpawned("kws-parent") || isSpawned("kws-child")) {
 }
 
 function killCallback(done) {
+	done = done || function () {};
 	return function (err) {
 		if (err) {
 			return done(err);
@@ -46,12 +47,40 @@ function killCallback(done) {
 	};
 }
 
-function afterSpawnedChildren(parent, callback) {
+function afterSpawned(parent, callback) {
 	parent.stdout.on("data", function (data) {
-		if (data.toString().indexOf("spawned-children") != -1) {
+		data = data.toString();
+		if (data.indexOf("running") != -1) {
 			callback();
 		}
 	});
+}
+
+function afterSpawnedChildren(parent, callback) {
+	parent.stdout.on("data", function (data) {
+		data = data.toString();
+		if (data.indexOf("spawned-children") != -1) {
+			callback();
+		}
+	});
+}
+
+function getKillSignal(parent, callback) {
+	parent.stdout.on("data", function (data) {
+		data = data.toString();
+		if (data.indexOf("signal") != -1) {
+			callback(data.toString().match(/signal=(.*)/)[1]);
+		}
+	});
+}
+
+function waitFor(predicat, callback) {
+	var interval = setInterval(function () {
+		if (predicat()) {
+			clearInterval(interval);
+			callback();
+		}
+	}, 50);
 }
 
 describe("children without signal handlers", function () {
@@ -66,7 +95,9 @@ describe("children without signal handlers", function () {
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 
-		kill(child.pid, killCallback(done));
+		afterSpawned(child, function () {
+			kill(child.pid, killCallback(done));
+		});
 	});
 
 	it("detached", function (done) {
@@ -77,7 +108,9 @@ describe("children without signal handlers", function () {
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 
-		kill(child.pid, killCallback(done));
+		afterSpawned(child, function () {
+			kill(child.pid, killCallback(done));
+		});
 	});
 
 	it("inside shell", function (done) {
@@ -88,7 +121,9 @@ describe("children without signal handlers", function () {
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 
-		kill(child.pid, killCallback(done));
+		afterSpawned(child, function () {
+			kill(child.pid, killCallback(done));
+		});
 	});
 
 	it("with children", function (done) {
@@ -111,9 +146,29 @@ describe("children without signal handlers", function () {
 		});
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
-		afterSpawnedChildren(child, function () {
-			assert.equal(spawnedNumber("kws-child"), 2);
+		waitFor(function () {
+			return spawnedNumber("kws-child") == 4;
+		}, function () {
 			kill(child.pid, killCallback(done));
+		});
+	});
+});
+
+describe("children with signal handlers", function () {
+	it(".signal=SIGINT", function (done) {
+		var child = childProcess.spawn("./kws-parent", {
+			cwd: __dirname,
+			shell: true,
+			stdio: ['pipe', 'pipe', 'pipe']
+		});
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		getKillSignal(child, function (signal) {
+			assert.equal(signal, "SIGINT")
+			done();
+		});
+		afterSpawned(child, function () {
+			kill(child.pid, { signal: "SIGINT"}, killCallback());
 		});
 	});
 });

@@ -21,7 +21,6 @@ module.exports = function (isChild) {
 		var children = [];
 		var n = +(program.children.indexOf(",") != -1 ? program.children.split(",")[0] : program.children);
 		var subN = +(program.children.indexOf(",") != -1 ? program.children.split(",")[1] : 0);
-		console.log({ n, subN });
 		for (var i = 0; i < n; i++) {
 			var cmd = "./kws-child";
 			if (subN) {
@@ -38,6 +37,8 @@ module.exports = function (isChild) {
 		}
 		console.log("spawned-children");
 	}
+
+	console.log("running");
 
 	function onSignal(signal) {
 		return function () {
