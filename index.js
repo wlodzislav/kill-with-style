@@ -32,6 +32,10 @@ var isDead = isDeadProcessKill(process.pid) ? isDeadPsAwk : isDeadProcessKill;
 	Last retry is always SIGKILL
 */
 function kill(pid, options, _callback) {
+	if (arguments.length == 2) {
+		_callback = arguments[1];
+		options = {}
+	}
 	options.signal = options.signal || "SIGTERM";
 	options.checkInterval = options.checkInterval || 20;
 	options.retryInterval = options.retryInterval || 500;

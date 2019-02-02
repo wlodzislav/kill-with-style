@@ -1,0 +1,12 @@
+#!/usr/bin/env node
+
+var program = require("commander");
+
+program
+	.option("--die <delay>", "Die after delay")
+
+if (program.die) {
+	setTimeout(function () {}, program.die);
+} else {
+	setTimeout(function () {}, 60 * 1000);
+}
