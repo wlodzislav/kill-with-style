@@ -1,4 +1,4 @@
-var child = require('child_process');
+var childProcess = require('child_process');
 
 var psTree = require('ps-tree');
 var async = require("async");
@@ -21,12 +21,13 @@ function isDeadProcessKill(pid) {
 	return true;
 }
 
-function isDeadPsAwk(pid) {
-	return child.execSync("ps | awk -e '{ print $1 }'").toString().indexOf(pid) == -1
+function isDeadPs(pid) {
+	var ps = childProcess.execSync("ps -A -o pid", { encoding: "utf8" });
+	return ps.indexOf(pid) == -1;
 }
 
 // HACK: determine working dead process check
-var isDead = isDeadProcessKill(process.pid) ? isDeadPsAwk : isDeadProcessKill;
+var isDead = isDeadProcessKill(process.pid) ? isDeadPs : isDeadProcessKill;
 
 /*
 	Last retry is always SIGKILL
