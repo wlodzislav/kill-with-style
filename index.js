@@ -1,43 +1,40 @@
-var childProcess = require('child_process');
+var childProcess = require("child_process");
 
-var psTree = require('ps-tree');
 var async = require("async");
+var chalk = require("chalk");
+var cy = chalk.cyan;
+var r = chalk.red;
 
-function getProcessChildren(pid, callback) {
-	psTree(pid, function (err, children) {
-		if (err) { return callback(err); }
-		children = children.map(function (c) { return +c.PID; });
-		callback(null, children);
+
+function getProcessChildren(ppid, callback) {
+	var ps = childProcess.execSync("ps -A -o ppid,pid", { encoding: "utf8" });
+	var pids = [];
+	ps.split("\n").filter(Boolean).forEach(function (line) {
+		var splitted = line.split(" ");
+		if (+splitted[0] == ppid) {
+			pids.push(+splitted[1]);
+		}
 	});
+	callback(null, pids);
 }
-
-function isDeadProcessKill(pid) {
-	/* This stoped working on MacOs, node v7.2.0 */
-	try {
-		return process.kill(pid, 0);
-	} catch (err) {
-		return err.code !== "EPERM";
-	}
-	return true;
-}
-
-function isDeadPs(pid) {
-	var ps = childProcess.execSync("ps -A -o pid", { encoding: "utf8" });
-	return ps.indexOf(pid) == -1;
-}
-
-// HACK: determine working dead process check
-var isDead = isDeadProcessKill(process.pid) ? isDeadPs : isDeadProcessKill;
 
 /*
 	Last retry is always SIGKILL
 */
 function kill(pid, options, _callback) {
+	function isDead(pid) {
+		var ps = childProcess.execSync("ps -A -o pid", { encoding: "utf8" });
+		var isDead = ps.indexOf(pid) == -1;
+		if (options.debug) { console.log("DEBUG: Check " + cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive"))); }
+		//try { console.log(childProcess.execSync("ps -A -o pid | grep " + pid + " | grep -v grep", { encoding: "utf8" })); } catch (err) {}
+		return isDead;
+	}
+
 	if (arguments.length == 2) {
 		_callback = arguments[1];
 		options = {}
 	}
-	options.signal = options.signal || "SIGTERM";
+	options.signal = options.signal || "SIGINT";
 	options.checkInterval = options.checkInterval || 20;
 	options.retryInterval = options.retryInterval || 500;
 	options.retryCount = options.retryCount || 5;
@@ -53,18 +50,17 @@ function kill(pid, options, _callback) {
 
 	function tryKillParent(pid, callback) {
 
+		var tries = 0;
 		function retry(signal) {
 			tries++;
 			try {
+				if (options.debug) { console.log("DEBUG: Send " + cy("signal=" + signal) + " to " + cy("pid=" + pid)); }
 				process.kill(pid, signal);
 			} catch (err) {}
 
-			checkDead()
+			checkDead();
 		}
 
-		retry(options.signal);
-
-		var tries = 0;
 		function checkDead() {
 			var startCheckingDead = Date.now();
 			var checkDeadIterval = setInterval(function () {
@@ -86,16 +82,20 @@ function kill(pid, options, _callback) {
 				}
 			}, options.checkInterval);
 		}
+
+		retry(options.signal);
 	}
 
 	function tryKillParentWithChildren(pid, callback) {
 		getProcessChildren(pid, function (err, children) {
+			if (options.debug) { console.log("DEBUG: Try to kill " + cy("pid=" + pid) + (children.length ? " with children " + cy(children.join(", ")) : "")); }
+
 			tryKillParent(pid, function (err) {
 				if (err) { return callback(err); }
 
 				var aliveChildren = children.filter(function (pid) { return !isDead(pid); });
 				if (aliveChildren.length) {
-					async.forEach(aliveChildren, function (pid, callback) {
+					async.each(aliveChildren, function (pid, callback) {
 						if (!isDead(pid)) {
 							tryKillParentWithChildren(pid, callback);
 						} else {
