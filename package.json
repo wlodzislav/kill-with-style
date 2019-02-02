@@ -1,0 +1,24 @@
+{
+  "name": "kill-with-style",
+  "version": "0.0.0",
+  "description": "Kill procesess gracefully with retries, signals and all children",
+  "keywords": [
+    "kill",
+    "graceful",
+    "terminate",
+    "pid",
+    "child_process",
+    "child",
+    "process",
+    "processes",
+    "tree",
+    "shutdown",
+    "sigint",
+    "sigterm",
+    "sigkill"
+  ],
+  "main": "index.js",
+  "repository": "git://github.com/wlodzislav/kill-with-style.git",
+  "author": "Vladislav Kaminsky <wlodzislav@ya.ru>",
+  "license": "MIT"
+}
