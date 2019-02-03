@@ -10,6 +10,7 @@ module.exports = function (isChild) {
 		.option("--log", "Log to text/log.txt")
 		.option("--detached", "Detach children")
 		.option("--retries [n]", "Retries needed to kill process")
+		.option("--delay [n]", "Delay exit by ms")
 
 	program.parse(process.argv);
 
@@ -77,7 +78,15 @@ module.exports = function (isChild) {
 				var message = "Killed " + (isChild ? "child" : "parent") + " pid=" + process.pid + " with signal=" + signal + "\n";
 				require("fs").appendFileSync(__dirname + "/log.txt", message, "utf8");
 			}
-			process.exit();
+			if (program.delay) {
+				setTimeout(function () {
+					console.log("die");
+					process.exit();
+				}, program.delay);
+			} else {
+				console.log("die");
+				process.exit();
+			}
 		};
 	}
 

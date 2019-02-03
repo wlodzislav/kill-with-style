@@ -37,6 +37,7 @@ if (isSpawned("kws-parent") || isSpawned("kws-child")) {
 }
 
 function killCallback(done, err) {
+	//console.log("killCallback");
 	if (arguments.length == 1) {
 		err = arguments[0];
 		done = function () {};
@@ -82,12 +83,17 @@ function inDelta(actual, expected, delta) {
 	return (actual > expected - delta && actual < expected + delta);
 }
 
-function assertEqualsDelta(actualArr, expectedArr, delta) {
-	var isEqual = actualArr.every(function (v, i) {
-		return inDelta(v, expectedArr[i], delta);
-	});
+function assertEqualsDelta(actual, expected, delta) {
+	var isEqual;
+	if (Array.isArray(expected)) {
+		isEqual = actual.every(function (v, i) {
+			return inDelta(v, expected[i], delta);
+		});
+	} else {
+		isEqual = inDelta(actual, expected, delta);
+	}
 	if (!isEqual) {
-		throw new Error("Expected " + JSON.stringify(actualArr) + " every value to be equal " + JSON.stringify(expectedArr) + " in +-" + delta);
+		throw new Error("Expected " + JSON.stringify(actual) + (Array.isArray(expected) ? " every value" : "") + " to be equal " + JSON.stringify(expected) + " in +-" + delta);
 	}
 }
 
@@ -153,7 +159,7 @@ describe("children without signal handlers", function () {
 		waitFor(function () {
 			return spawnedNumber("kws-child") == 4;
 		}, function () {
-			kill(child.pid, killCallback.bind(null, done));
+			kill(child.pid, { debug: false }, killCallback.bind(null, done));
 		});
 	});
 });
@@ -302,10 +308,292 @@ describe(".retryInterval", function () {
 	});
 });
 
+describe("options priority", null, function () {
+	it(".retryInterval=500", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: 500
+		});
+
+		var expected = {
+			retryInterval: [500, 500, 500],
+			retryCount: 3,
+			timeout: 2000,
+			signal: ["SIGINT", "SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryInterval=[100, 200]", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: [100, 200]
+		});
+
+		var expected = {
+			retryInterval: [100, 200],
+			retryCount: 2,
+			timeout: 100 + 200 + 200,
+			signal: ["SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryInterval=100 + .retryCount == .retryInterval.length", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: 100,
+			retryCount: 2
+		});
+
+		var expected = {
+			retryInterval: [100, 100],
+			retryCount: 2,
+			timeout: 100 + 100 + 100,
+			signal: ["SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryInterval=[100, 200] + .retryCount > .retryInterval.length", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: [100, 200],
+			retryCount: 3
+		});
+
+		var expected = {
+			retryInterval: [100, 200, 200],
+			retryCount: 3,
+			timeout: 100 + 200 + 200 + 200,
+			signal: ["SIGINT", "SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryInterval=[100, 200] + .retryCount < .retryInterval.length", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: [100, 200],
+			retryCount: 1
+		});
+
+		var expected = {
+			retryInterval: [100, 200],
+			retryCount: 2,
+			timeout: 100 + 200 + 200,
+			signal: ["SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryInterval=500 + .timeout=1500", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: 500,
+			timeout: 1500
+		});
+
+		var expected = {
+			retryInterval: [500, 500],
+			retryCount: 2,
+			timeout: 1500,
+			signal: ["SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryInterval=[100, 200], .timeout > sum of .retryInterval", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: [100, 200],
+			timeout: 400
+		});
+
+		var expected = {
+			retryInterval: [100, 200],
+			retryCount: 2,
+			timeout: 400,
+			signal: ["SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryInterval=[100, 200], .timeout <= sum of .retryInterval", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: [100, 200],
+			timeout: 300
+		});
+
+		var expected = {
+			retryInterval: [100, 200],
+			retryCount: 2,
+			timeout: 100 + 200 + 200,
+			signal: ["SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryInterval=100 + .retryCount + .timeout > all retries + 1", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: 100,
+			retryCount: 2,
+			timeout: 300
+		});
+
+		var expected = {
+			retryInterval: [100, 100],
+			retryCount: 2,
+			timeout: 300,
+			signal: ["SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryInterval=100 + .retryCount + .timeout <= all retries + 1", function () {
+		var actual = kill._normalizeOptions({
+			retryInterval: 100,
+			retryCount: 2,
+			timeout: 200
+		});
+
+		var expected = {
+			retryInterval: [100, 100],
+			retryCount: 2,
+			timeout: 300,
+			signal: ["SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryCount=3", function () {
+		var actual = kill._normalizeOptions({
+			retryCount: 3
+		});
+
+		var expected = {
+			retryInterval: [500, 500, 500],
+			retryCount: 3,
+			timeout: 2000,
+			signal: ["SIGINT", "SIGINT", "SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".retryCount=0", function () {
+		var actual = kill._normalizeOptions({
+			retryCount: 0
+		});
+
+		var expected = {
+			retryInterval: [],
+			retryCount: 0,
+			timeout: 2000,
+			signal: ["SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".timeout=1000 > default retryInterval", function () {
+		var actual = kill._normalizeOptions({
+			timeout: 1000
+		});
+
+		var expected = {
+			retryInterval: [500],
+			retryCount: 1,
+			timeout: 1000,
+			signal: ["SIGINT", "SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+	it(".timeout=1000 <= default retryInterval", function () {
+		var actual = kill._normalizeOptions({
+			timeout: 500
+		});
+
+		var expected = {
+			retryInterval: [],
+			retryCount: 0,
+			timeout: 500,
+			signal: ["SIGINT"],
+			checkInterval: 50,
+			usePGID: true
+		};
+
+		assert.deepEqual(actual, expected);
+	});
+
+});
+
+describe(".timeout", function () {
+	it("timeout = 1000, delay = 0", function (done) {
+		var child = childProcess.spawn("./kws-parent", { cwd: __dirname, shell: true });
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		onMessage(child, "running", function () {
+			var start = Date.now();
+			kill(child.pid, { timeout: 1000 }, function (err) {
+				var total = Date.now() - start;
+				assertEqualsDelta(total, 0, 500);
+				assert(!err);
+				killCallback(done, err);
+			});
+		});
+	});
+
+	it("timeout = 1000, delay = 2000", function (done) {
+		var child = childProcess.spawn("./kws-parent --delay 1100", { cwd: __dirname, shell: true });
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		onMessage(child, "running", function () {
+			var start = Date.now();
+			kill(child.pid, { timeout: 1000 }, function (err) {
+				var total = Date.now() - start;
+				assertEqualsDelta(total, 1000, 500);
+				assert(err);
+				kill(child.pid, killCallback.bind(null, done));
+			});
+		});
+	});
+});
+
 describe(".usePGID", function () {
 	it("not detached child, overwrite .usePGID = false", function (done) {
 		var child = childProcess.spawn("./kws-parent", { cwd: __dirname, shell: true });
-
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		onMessage(child, "running", function () {
@@ -329,7 +617,6 @@ describe(".usePGID", function () {
 			shell: true,
 			detached: true
 		});
-
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		onMessage(child, "running", function () {
