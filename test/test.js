@@ -308,7 +308,7 @@ describe(".retryInterval", function () {
 	});
 });
 
-describe("options priority", null, function () {
+describe("options priority", function () {
 	it(".retryInterval=500", function () {
 		var actual = kill._normalizeOptions({
 			retryInterval: 500
