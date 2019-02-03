@@ -64,7 +64,7 @@ module.exports = function (isChild) {
 	var firstTry = true;
 	function onSignal(signal) {
 		return function () {
-			console.log("signal=" + signal);
+			console.log("signal=" + signal + "," + Date.now());
 			if (!firstTry) {
 				console.log("retry");
 			}

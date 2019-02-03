@@ -6,6 +6,10 @@ var cy = chalk.cyan;
 var r = chalk.red;
 var gr = chalk.green;
 
+function debug(message) {
+	var d = new Date();
+	console.log("DEBUG " + d.getHours() + ":" + d.getMinutes() + ":" + d.getSeconds() + "." + d.getMilliseconds() + " " +message);
+}
 
 function parsePSOutput(fields, output) {
 	return output.split("\n").slice(1).filter(Boolean).map(function (line) {
@@ -27,7 +31,7 @@ function comparePID(a, b) {
 
 function getProcessChildren(parentPID, options, callback) {
 	if (options.debug) {
-		console.log("DEBUG: Get children for " + cy("pid=" + parentPID));
+		debug("Get children for " + cy("pid=" + parentPID));
 	}
 	var usePGID = options.usePGID;
 	var psOutput = childProcess.execSync("ps -A -o ppid,pgid,pid", { encoding: "utf8" });
@@ -44,10 +48,10 @@ function getProcessChildren(parentPID, options, callback) {
 	if (!parentEntry || parentEntry.pgid != parentPID) {
 		if (options.debug && usePGID) {
 			if (!parentEntry) {
-				console.log("DEBUG: Parent " + cy("pid=" + parentPID) + " is dead " + r(".usePGID = false") + " for getting children");
+				debug("Parent " + cy("pid=" + parentPID) + " is dead " + r(".usePGID = false") + " for getting children");
 			}
 			if (parentEntry.pgid != parentPID) {
-				console.log("DEBUG: Parent " + cy("pid=" + parentPID) + " pid !== pgid " + r(".usePGID = false") + " for getting children");
+				debug("Parent " + cy("pid=" + parentPID) + " pid !== pgid " + r(".usePGID = false") + " for getting children");
 			}
 		}
 		usePGID = false;
@@ -75,7 +79,7 @@ function kill(pid, options, _callback) {
 		//console.log(psOutput);
 		var ps = parsePSOutput(["pid"], psOutput);
 		var isDead = !ps.find(function (entry) { return entry.pid == pid;});
-		if (options.debug) { console.log("DEBUG: Check " + cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive"))); }
+		if (options.debug) { debug("Check " + cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive"))); }
 		//try { console.log(childProcess.execSync("ps -A -o pid | grep " + pid + " | grep -v grep", { encoding: "utf8" })); } catch (err) {}
 		return isDead;
 	}
@@ -89,15 +93,28 @@ function kill(pid, options, _callback) {
 		options.signal = [options.signal];
 	}
 
-	options.retryInterval = options.retryInterval || 500;
-	options.checkInterval = options.checkInterval || 20;
-	if (options.retryCount) {
-		options.timeout = options.retryInterval * (options.retryCount + 1);
+	if (!options.retryInterval) {
+		options.retryInterval = [500];
+	}
+
+	if (!options.hasOwnProperty("retryCount")) {
+		options.retryCount = 5;
+	}
+
+	if (!Array.isArray(options.retryInterval)) {
+		options.retryInterval = [options.retryInterval];
+	}
+
+	options.checkInterval = options.checkInterval || 50;
+	if (options.retryInterval) {
+		var retryIntervalsSum = options.retryInterval.reduce(function(a, b) { return a + b; }, 0);
+		var lastInterval = options.retryInterval[options.retryInterval.length - 1];
+		options.retryCount = Math.max(options.retryCount, options.retryInterval.length);
+		options.timeout = retryIntervalsSum + lastInterval * (options.retryCount - options.retryInterval.length + 1);
 	}
 
 	options.signal = options.signal || ["SIGINT"];
-	options.retryCount = options.retryCount || 5;
-	options.timeout = options.timeout || 100000;
+	options.timeout = options.timeout || 5000;
 	options.usePGID = options.usePGID || true;
 
 	var once = false;
@@ -112,55 +129,69 @@ function kill(pid, options, _callback) {
 
 	function tryKillParent(pid, callback) {
 
-		var tries = 0;
-		function retry() {
-			tries++;
-			var signal = options.signal[tries] || options.signal[options.signal.length - 1];
+		var checkDeadIterval;
+		var retryTimeout;
+		var retries = 0;
+
+		function sendSignal() {
+			var signal = options.signal[retries] || options.signal[options.signal.length - 1];
 			try {
-				if (options.debug) { console.log("DEBUG: Send " + cy("signal=" + signal) + " to " + cy("pid=" + pid)); }
+				if (options.debug) { debug("Send " + cy("signal=" + signal) + " to " + cy("pid=" + pid)); }
 				process.kill(pid, signal);
 			} catch (err) {}
+		}
 
+		function retry() {
+			if (options.debug) { debug("Retry to kill " + cy("pid=" + pid)); }
+			retries++;
+			sendSignal();
 			checkDead();
 		}
 
 		function checkDead() {
 			var startCheckingDead = Date.now();
-			var checkDeadIterval = setInterval(function () {
+			clearInterval(checkDeadIterval);
+			checkDeadIterval = setInterval(function () {
 				if (Date.now() - startCheckingDead > options.retryInterval) {
 					clearInterval(checkDeadIterval);
-					if (tries < options.retryCount + 1) {
+					if (retries < options.retryCount) {
 						retry();
-						checkDead();
-					} else if (tries < options.retryCount) {
-						checkDead();
 					} else {
 						var err = new Error("Can't kill process with pid = " + pid);
 						callback(err);
 					}
 				}
 				if (isDead(pid)) {
+					clearTimeout(retryTimeout);
 					clearInterval(checkDeadIterval);
 					if (options.debug) {
-						console.log("DEBUG: Killed " + gr("pid=" + pid));
+						debug("Killed " + gr("pid=" + pid));
 					}
 					callback();
 				}
 			}, options.checkInterval);
 		}
 
-		retry();
+		sendSignal();
+		checkDead();
+		retryTimeout = setTimeout(function onRetryTimeout() {
+			retry();
+			if (retries < options.retryCount) {
+				var interval = options.retryInterval[retries] || options.retryInterval[options.retryInterval.length - 1];
+				retryTimeout = setTimeout(onRetryTimeout, interval);
+			}
+		}, options.retryInterval[0]);
 	}
 
 	function tryKillParentWithChildren(pid, callback) {
 		getProcessChildren(pid, options, function (err, children) {
-			if (options.debug) { console.log("DEBUG: Try to kill " + cy("pid=" + pid) + (children.length ? " with children " + cy(children.join(", ")) : "")); }
+			if (options.debug) { debug("Try to kill " + cy("pid=" + pid) + (children.length ? " with children " + cy(children.join(", ")) : "")); }
 
 			tryKillParent(pid, function (err) {
 				if (err) { return callback(err); }
 
 				if (options.debug) {
-					console.log("DEBUG: Try to kill children of " + cy("pid=" + pid));
+					debug("Try to kill children of " + cy("pid=" + pid));
 				}
 				async.each(children, function (pid, callback) {
 					if (!isDead(pid)) {

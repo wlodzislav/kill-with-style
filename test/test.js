@@ -61,16 +61,10 @@ function splitMessages(parent, callback) {
 
 function onMessage(parent, message, callback) {
 	splitMessages(parent, function (data) {
-		if (data == message) {
-			callback();
-		}
-	});
-}
-
-function onMessageWithParams(parent, message, callback) {
-	splitMessages(parent, function (data) {
-		if (data.startsWith(message)) {
+		if (data.startsWith(message + "=")) {
 			callback.apply(null, data.replace(message + "=", "").split(","));
+		} else if (data.startsWith(message)) {
+			callback();
 		}
 	});
 }
@@ -82,6 +76,19 @@ function waitFor(predicat, callback) {
 			callback();
 		}
 	}, 50);
+}
+
+function inDelta(actual, expected, delta) {
+	return (actual > expected - delta && actual < expected + delta);
+}
+
+function assertEqualsDelta(actualArr, expectedArr, delta) {
+	var isEqual = actualArr.every(function (v, i) {
+		return inDelta(v, expectedArr[i], delta);
+	});
+	if (!isEqual) {
+		throw new Error("Expected " + JSON.stringify(actualArr) + " every value to be equal " + JSON.stringify(expectedArr) + " in +-" + delta);
+	}
 }
 
 afterEach(function () {
@@ -171,7 +178,7 @@ describe(".signal", function () {
 		});
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
-		onMessageWithParams(child, "signal", function (signal) {
+		onMessage(child, "signal", function (signal) {
 			assert.equal(signal, "SIGTERM")
 			done();
 		});
@@ -181,7 +188,7 @@ describe(".signal", function () {
 	});
 });
 
-describe.only(".retryCount", function () {
+describe(".retryCount", function () {
 	it("retryCount = 3, retries = 4", function (done) {
 		var child = childProcess.spawn("./kws-parent --retries 4", {
 			cwd: __dirname,
@@ -192,7 +199,6 @@ describe.only(".retryCount", function () {
 		assert(isSpawned("kws-parent"));
 		var retries = 0;
 		onMessage(child, "retry", function () {
-			console.log("retry");
 			retries += 1;
 		});
 		onMessage(child, "running", function () {
@@ -215,12 +221,61 @@ describe.only(".retryCount", function () {
 		assert(isSpawned("kws-parent"));
 		var retries = 0;
 		onMessage(child, "retry", function () {
-			console.log("retry");
 			retries += 1;
 		});
 		onMessage(child, "running", function () {
 			kill(child.pid, { retryCount: 3}, function (err) {
 				assert.equal(retries, 3);
+				killCallback(done, err);
+			});
+		});
+	});
+});
+
+describe(".retryInterval", function () {
+	it("retryInterval = 1000", function (done) {
+		var child = childProcess.spawn("./kws-parent --retries 3", {
+			cwd: __dirname,
+			shell: true,
+			stdio: ['pipe', 'pipe', 'pipe']
+		});
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		var lastTryDate;
+		var retryInterval = [];
+		onMessage(child, "signal", function (signal, date) {
+			if (lastTryDate) {
+				retryInterval.push(date - lastTryDate);
+			}
+			lastTryDate = date;
+		});
+		onMessage(child, "running", function () {
+			kill(child.pid, { retryCount: 3, retryInterval: 1000 }, function (err) {
+				assertEqualsDelta(retryInterval, [1000, 1000, 1000], 500);
+				killCallback(done, err);
+			});
+		});
+	});
+
+	it("retryInterval = [1000, 100, 2000]", function (done) {
+		var child = childProcess.spawn("./kws-parent --retries 3", {
+			cwd: __dirname,
+			shell: true,
+			stdio: ['pipe', 'pipe', 'pipe']
+		});
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		var lastTryDate;
+		var retryInterval = [];
+		onMessage(child, "signal", function (signal, date) {
+			if (lastTryDate) {
+				retryInterval.push(date - lastTryDate);
+			}
+			lastTryDate = date;
+		});
+		onMessage(child, "running", function () {
+			kill(child.pid, { retryCount: 3, retryInterval: [1000, 100, 2000] }, function (err) {
+				assertEqualsDelta(retryInterval, [1000, 100, 2000], 500);
 				killCallback(done, err);
 			});
 		});
