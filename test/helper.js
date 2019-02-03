@@ -8,6 +8,7 @@ module.exports = function (isChild) {
 		.option("--die [delay]", "Die after delay")
 		.option("--children [n]", "Spawn children")
 		.option("--log", "Log to text/log.txt")
+		.option("--detached", "Detach children")
 
 	program.parse(process.argv);
 
@@ -19,8 +20,16 @@ module.exports = function (isChild) {
 
 	if (program.children) {
 		var children = [];
-		var n = +(program.children.indexOf(",") != -1 ? program.children.split(",")[0] : program.children);
-		var subN = +(program.children.indexOf(",") != -1 ? program.children.split(",")[1] : 0);
+		var nestedChildren = program.children.indexOf(",") != -1;
+		var n = 0;
+		var subN = 0;
+		if (nestedChildren) {
+			n = +program.children.slice(0, program.children.indexOf(","));
+			subN = program.children.slice(program.children.indexOf(",") + 1);
+		} else {
+			n = +program.children;
+		}
+
 		for (var i = 0; i < n; i++) {
 			var cmd = "./kws-child";
 			if (subN) {
@@ -29,7 +38,18 @@ module.exports = function (isChild) {
 			if (program.log) {
 				cmd += " --log";
 			}
-			var child = childProcess.spawn(cmd, { cwd: __dirname, shell: true });
+			if (program.detached) {
+				cmd += " --detached";
+			}
+			var child = childProcess.spawn(cmd, {
+				cwd: __dirname,
+				shell: true,
+				detached: true
+			});
+			child.stderr.on("data", function (data) {
+				console.log("ERORR(pid=" + child.pid + "): " + data.toString());
+				process.exit(1);
+			});
 			child.stdout.on("data", function (data) {
 				console.log("CHILD(pid=" + child.pid + "): " + data.toString());
 			});

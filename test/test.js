@@ -27,8 +27,12 @@ function killBash(name) {
 }
 
 if (isSpawned("kws-parent") || isSpawned("kws-child")) {
-	console.error("Error: Can't run tests, kill all kws-* processes manually");
-	process.exit(1);
+	console.log("Killed kws-* processes from the previous run");
+	killBash("kws-");
+	if (isSpawned("kws-parent") || isSpawned("kws-child")) {
+		console.error("Error: Can't run tests, kill all kws-* processes manually");
+		process.exit(1);
+	}
 }
 
 function killCallback(done) {
@@ -171,4 +175,55 @@ describe("children with signal handlers", function () {
 			kill(child.pid, { signal: "SIGINT"}, killCallback());
 		});
 	});
+
+});
+
+describe(".usePGID", function () {
+	it("not detached child, overwrite .usePGID = false", function (done) {
+		var child = childProcess.spawn("./kws-parent", {
+			cwd: __dirname,
+			shell: true
+		});
+
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		afterSpawned(child, function () {
+			// HACK: hook into debug output of kill()
+			var _log = console.log;
+			var killOutput = "";
+			console.log = function () {
+				killOutput += [].join.call(arguments, " "); + "\n";
+			};
+			kill(child.pid, { debug: true }, function (err) {
+				console.log = _log;
+				assert.notEqual(killOutput.indexOf(".usePGID = false"), -1);
+				killCallback(done)(err);
+			});
+		});
+	});
+
+	it("detached child", function (done) {
+		var child = childProcess.spawn("./kws-parent", {
+			cwd: __dirname,
+			shell: true,
+			detached: true
+		});
+
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		afterSpawned(child, function () {
+			// HACK: hook into debug output of kill()
+			var _log = console.log;
+			var killOutput = "";
+			console.log = function () {
+				killOutput += [].join.call(arguments, " "); + "\n";
+			};
+			kill(child.pid, { debug: true }, function (err) {
+				console.log = _log;
+				assert.equal(killOutput.indexOf(".usePGID = false"), -1);
+				killCallback(done)(err);
+			});
+		});
+	});
+
 });
