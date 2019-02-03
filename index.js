@@ -89,11 +89,15 @@ function kill(pid, options, _callback) {
 		options.signal = [options.signal];
 	}
 
-	options.signal = options.signal || ["SIGINT"];
-	options.checkInterval = options.checkInterval || 20;
 	options.retryInterval = options.retryInterval || 500;
+	options.checkInterval = options.checkInterval || 20;
+	if (options.retryCount) {
+		options.timeout = options.retryInterval * (options.retryCount + 1);
+	}
+
+	options.signal = options.signal || ["SIGINT"];
 	options.retryCount = options.retryCount || 5;
-	options.timeout = options.timeout || 5000;
+	options.timeout = options.timeout || 100000;
 	options.usePGID = options.usePGID || true;
 
 	var once = false;
@@ -125,7 +129,7 @@ function kill(pid, options, _callback) {
 			var checkDeadIterval = setInterval(function () {
 				if (Date.now() - startCheckingDead > options.retryInterval) {
 					clearInterval(checkDeadIterval);
-					if (tries < options.retryCount - 1) {
+					if (tries < options.retryCount + 1) {
 						retry();
 						checkDead();
 					} else if (tries < options.retryCount) {

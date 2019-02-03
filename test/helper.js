@@ -9,6 +9,7 @@ module.exports = function (isChild) {
 		.option("--children [n]", "Spawn children")
 		.option("--log", "Log to text/log.txt")
 		.option("--detached", "Detach children")
+		.option("--retries [n]", "Retries needed to kill process")
 
 	program.parse(process.argv);
 
@@ -47,11 +48,11 @@ module.exports = function (isChild) {
 				detached: true
 			});
 			child.stderr.on("data", function (data) {
-				console.log("ERORR(pid=" + child.pid + "): " + data.toString());
+				console.log("stderr(pid=" + child.pid + "): " + data.toString());
 				process.exit(1);
 			});
 			child.stdout.on("data", function (data) {
-				console.log("CHILD(pid=" + child.pid + "): " + data.toString());
+				console.log("stdout(pid=" + child.pid + "): " + data.toString());
 			});
 			children.push(child);
 		}
@@ -60,9 +61,18 @@ module.exports = function (isChild) {
 
 	console.log("running");
 
+	var firstTry = true;
 	function onSignal(signal) {
 		return function () {
 			console.log("signal=" + signal);
+			if (!firstTry) {
+				console.log("retry");
+			}
+			firstTry = false;
+			if (program.retries) {
+				program.retries -= 1;
+				return;
+			}
 			if (program.log) {
 				var message = "Killed " + (isChild ? "child" : "parent") + " pid=" + process.pid + " with signal=" + signal + "\n";
 				require("fs").appendFileSync(__dirname + "/log.txt", message, "utf8");
