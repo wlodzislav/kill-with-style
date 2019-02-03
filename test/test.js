@@ -104,9 +104,7 @@ beforeEach(function () {
 
 describe("children without signal handlers", function () {
 	it("not detached", function (done) {
-		var child = childProcess.spawn("./kws-parent", {
-			cwd: __dirname
-		});
+		var child = childProcess.spawn("./kws-parent", { cwd: __dirname });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 
@@ -129,10 +127,7 @@ describe("children without signal handlers", function () {
 	});
 
 	it("inside shell", function (done) {
-		var child = childProcess.spawn("./kws-parent", {
-			cwd: __dirname,
-			shell: true
-		});
+		var child = childProcess.spawn("./kws-parent", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 
@@ -142,10 +137,7 @@ describe("children without signal handlers", function () {
 	});
 
 	it("with children", function (done) {
-		var child = childProcess.spawn("./kws-parent --children 2", {
-			cwd: __dirname,
-			shell: true
-		});
+		var child = childProcess.spawn("./kws-parent --children 2", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		onMessage(child, "spawned-children", function () {
@@ -155,10 +147,7 @@ describe("children without signal handlers", function () {
 	});
 
 	it("children with children", function (done) {
-		var child = childProcess.spawn("./kws-parent --children 2,1", {
-			cwd: __dirname,
-			shell: true
-		});
+		var child = childProcess.spawn("./kws-parent --children 2,1", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		waitFor(function () {
@@ -170,31 +159,74 @@ describe("children without signal handlers", function () {
 });
 
 describe(".signal", function () {
-	it(".signal=SIGTERM", function (done) {
-		var child = childProcess.spawn("./kws-parent", {
-			cwd: __dirname,
-			shell: true,
-			stdio: ['pipe', 'pipe', 'pipe']
-		});
+	it(".signal=SIGTERM, retries = 0", function (done) {
+		var child = childProcess.spawn("./kws-parent", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
+		var signals = [];
 		onMessage(child, "signal", function (signal) {
-			assert.equal(signal, "SIGTERM")
-			done();
+			signals.push(signal);
 		});
 		onMessage(child, "running", function () {
-			kill(child.pid, { signal: "SIGTERM"}, killCallback);
+			kill(child.pid, { signal: "SIGTERM"}, function (err) {
+				assert.deepEqual(signals, ["SIGTERM"]);
+				killCallback(done, err);
+			});
+		});
+	});
+
+	it(".signal=SIGTERM, retries = 2", function (done) {
+		var child = childProcess.spawn("./kws-parent --retries 2", { cwd: __dirname, shell: true });
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		var signals = [];
+		onMessage(child, "signal", function (signal) {
+			signals.push(signal);
+		});
+		onMessage(child, "running", function () {
+			kill(child.pid, { signal: "SIGTERM", retryCount: 2 }, function (err) {
+				assert.deepEqual(signals, ["SIGTERM", "SIGTERM", "SIGTERM"]);
+				killCallback(done, err);
+			});
+		});
+	});
+
+	it(".signal=[SIGINT,SIGTERM], retries = 2", function (done) {
+		var child = childProcess.spawn("./kws-parent --retries 2", { cwd: __dirname, shell: true });
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		var signals = [];
+		onMessage(child, "signal", function (signal) {
+			signals.push(signal);
+		});
+		onMessage(child, "running", function () {
+			kill(child.pid, { signal: ["SIGINT", "SIGTERM"], retryCount: 2 }, function (err) {
+				assert.deepEqual(signals, ["SIGINT", "SIGTERM", "SIGTERM"]);
+				killCallback(done, err);
+			});
+		});
+	});
+
+	it(".signal=[SIGINT,SIGTERM,SIGTERM], retries = 2", function (done) {
+		var child = childProcess.spawn("./kws-parent --retries 2", { cwd: __dirname, shell: true });
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		var signals = [];
+		onMessage(child, "signal", function (signal) {
+			signals.push(signal);
+		});
+		onMessage(child, "running", function () {
+			kill(child.pid, { signal: ["SIGINT", "SIGTERM", "SIGTERM"], retryCount: 2 }, function (err) {
+				assert.deepEqual(signals, ["SIGINT", "SIGTERM", "SIGTERM"]);
+				killCallback(done, err);
+			});
 		});
 	});
 });
 
 describe(".retryCount", function () {
 	it("retryCount = 3, retries = 4", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 4", {
-			cwd: __dirname,
-			shell: true,
-			stdio: ['pipe', 'pipe', 'pipe']
-		});
+		var child = childProcess.spawn("./kws-parent --retries 4", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		var retries = 0;
@@ -212,11 +244,7 @@ describe(".retryCount", function () {
 	});
 
 	it("retryCount = 3, retries = 3", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 3", {
-			cwd: __dirname,
-			shell: true,
-			stdio: ['pipe', 'pipe', 'pipe']
-		});
+		var child = childProcess.spawn("./kws-parent --retries 3", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		var retries = 0;
@@ -234,11 +262,7 @@ describe(".retryCount", function () {
 
 describe(".retryInterval", function () {
 	it("retryInterval = 1000", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 3", {
-			cwd: __dirname,
-			shell: true,
-			stdio: ['pipe', 'pipe', 'pipe']
-		});
+		var child = childProcess.spawn("./kws-parent --retries 3", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		var lastTryDate;
@@ -258,11 +282,7 @@ describe(".retryInterval", function () {
 	});
 
 	it("retryInterval = [1000, 100, 2000]", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 3", {
-			cwd: __dirname,
-			shell: true,
-			stdio: ['pipe', 'pipe', 'pipe']
-		});
+		var child = childProcess.spawn("./kws-parent --retries 3", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		var lastTryDate;
@@ -284,10 +304,7 @@ describe(".retryInterval", function () {
 
 describe(".usePGID", function () {
 	it("not detached child, overwrite .usePGID = false", function (done) {
-		var child = childProcess.spawn("./kws-parent", {
-			cwd: __dirname,
-			shell: true
-		});
+		var child = childProcess.spawn("./kws-parent", { cwd: __dirname, shell: true });
 
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
