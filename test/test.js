@@ -158,8 +158,8 @@ describe("children without signal handlers", function () {
 	});
 });
 
-describe("children with signal handlers", function () {
-	it(".signal=SIGINT", function (done) {
+describe(".signal", function () {
+	it(".signal=SIGTERM", function (done) {
 		var child = childProcess.spawn("./kws-parent", {
 			cwd: __dirname,
 			shell: true,
@@ -168,14 +168,13 @@ describe("children with signal handlers", function () {
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		getKillSignal(child, function (signal) {
-			assert.equal(signal, "SIGINT")
+			assert.equal(signal, "SIGTERM")
 			done();
 		});
 		afterSpawned(child, function () {
-			kill(child.pid, { signal: "SIGINT"}, killCallback());
+			kill(child.pid, { signal: "SIGTERM"}, killCallback());
 		});
 	});
-
 });
 
 describe(".usePGID", function () {
@@ -225,5 +224,5 @@ describe(".usePGID", function () {
 			});
 		});
 	});
-
 });
+

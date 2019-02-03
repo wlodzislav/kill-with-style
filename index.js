@@ -84,7 +84,12 @@ function kill(pid, options, _callback) {
 		_callback = arguments[1];
 		options = {}
 	}
-	options.signal = options.signal || "SIGINT";
+
+	if (typeof(options.signal) == "string") {
+		options.signal = [options.signal];
+	}
+
+	options.signal = options.signal || ["SIGINT"];
 	options.checkInterval = options.checkInterval || 20;
 	options.retryInterval = options.retryInterval || 500;
 	options.retryCount = options.retryCount || 5;
@@ -104,8 +109,9 @@ function kill(pid, options, _callback) {
 	function tryKillParent(pid, callback) {
 
 		var tries = 0;
-		function retry(signal) {
+		function retry() {
 			tries++;
+			var signal = options.signal[tries] || options.signal[options.signal.length - 1];
 			try {
 				if (options.debug) { console.log("DEBUG: Send " + cy("signal=" + signal) + " to " + cy("pid=" + pid)); }
 				process.kill(pid, signal);
@@ -120,7 +126,7 @@ function kill(pid, options, _callback) {
 				if (Date.now() - startCheckingDead > options.retryInterval) {
 					clearInterval(checkDeadIterval);
 					if (tries < options.retryCount - 1) {
-						retry(options.signal);
+						retry();
 						checkDead();
 					} else if (tries < options.retryCount) {
 						checkDead();
@@ -139,7 +145,7 @@ function kill(pid, options, _callback) {
 			}, options.checkInterval);
 		}
 
-		retry(options.signal);
+		retry();
 	}
 
 	function tryKillParentWithChildren(pid, callback) {
