@@ -635,3 +635,21 @@ describe(".usePGID", function () {
 	});
 });
 
+it(".checkInterval", function (done) {
+	var child = childProcess.spawn("./kws-parent --delay 1100", { cwd: __dirname, shell: true });
+	child.on("error", done);
+	assert(isSpawned("kws-parent"));
+	onMessage(child, "running", function () {
+		// HACK: hook into debug output of kill()
+		var _log = console.log;
+		var killOutput = "";
+		console.log = function () {
+			killOutput += [].join.call(arguments, " "); + "\n";
+		};
+		kill(child.pid, { debug: true, retryCount: 0, timeout: 3000, checkInterval: 500 }, function (err) {
+			console.log = _log;
+			assert.equal((killOutput.match(/Check/g) || []).length, 4);
+			killCallback(done, err);
+		});
+	});
+});

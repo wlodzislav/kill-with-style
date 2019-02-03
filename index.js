@@ -66,7 +66,6 @@ function getProcessChildren(parentPID, options, callback) {
 		usePGID = false;
 	}
 
-	//console.log({parentPID, usePGID, pgid:parentEntry.pgid})
 	ps.sort(comparePID).forEach(function (entry) {
 		if (entry.ppid == parentPID || children[entry.ppid]) {
 			children[entry.pid] = entry;
@@ -173,11 +172,9 @@ function kill(pid, options, _callback) {
 
 	function isDead(pid) {
 		var psOutput = childProcess.execSync("ps -A -o pid", { encoding: "utf8" });
-		//console.log(psOutput);
 		var ps = parsePSOutput(["pid"], psOutput);
 		var isDead = !ps.find(function (entry) { return entry.pid == pid;});
 		if (options.debug) { debug("Check " + cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive"))); }
-		//try { console.log(childProcess.execSync("ps -A -o pid | grep " + pid + " | grep -v grep", { encoding: "utf8" })); } catch (err) {}
 		return isDead;
 	}
 
@@ -208,24 +205,13 @@ function kill(pid, options, _callback) {
 		function checkDeadContinuous() {
 			clearInterval(checkDeadIterval);
 
-			/*
-			if (isDead(pid)) {
-				clearTimeout(retryTimeout);
-				console.log("IS DEAD IMM", pid);
-				return callback();
-			}
-			*/
-			/*
 			if (isDead(pid)) {
 				clearTimeout(retryTimeout);
 				clearInterval(checkDeadIterval);
-				if (options.debug) {
-					debug("Killed " + gr("pid=" + pid));
-				}
-				console.log("IS DEAD");
+				killed.push(pid);
+				if (options.debug) { debug("Killed " + gr("pid=" + pid)); }
 				return callback();
 			}
-			*/
 
 			checkDeadIterval = setInterval(function () {
 				if (isDead(pid)) {
@@ -233,15 +219,11 @@ function kill(pid, options, _callback) {
 					clearInterval(checkDeadIterval);
 					if (options.debug) { debug("Killed " + gr("pid=" + pid)); }
 					killed.push(pid);
-					//console.log("IS DEAD", pid);
 					callback();
 				}
 			}, options.checkInterval);
 		}
 
-		sendSignal();
-		checkDeadContinuous();
-		//console.log(options);
 		if (options.retryCount != 0) {
 			retryTimeout = setTimeout(function onRetryTimeout() {
 				retry();
@@ -251,6 +233,9 @@ function kill(pid, options, _callback) {
 				}
 			}, options.retryInterval[0]);
 		}
+
+		sendSignal();
+		checkDeadContinuous();
 	}
 
 	var pidsScheduled = [];
