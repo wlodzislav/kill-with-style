@@ -173,6 +173,9 @@ function tryKillParent(pid, timeoutDate, options, callback) {
 
 		if (options.debug && index > 0) {
 			debug("Retry to kill " + cy("pid=" + pid));
+		}
+
+		if (options.debug) {
 			debug("Send " + cy("signal=" + signal) + " to " + cy("pid=" + pid));
 		}
 
@@ -265,7 +268,15 @@ function kill(pid, options, callback) {
 				}
 
 				async.each(children, function (pid, callback) {
-					tryKillParentWithChildren(pid, callback);
+					checkDead(pid, function (err, isDead) {
+						if (err) { return callback(err); }
+
+						if (isDead) {
+							callback();
+						} else {
+							tryKillParentWithChildren(pid, callback);
+						}
+					});
 				}, callback);
 			});
 		});

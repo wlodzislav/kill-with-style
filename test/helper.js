@@ -11,6 +11,7 @@ module.exports = function (isChild) {
 		.option("--detached", "Detach children")
 		.option("--retries [n]", "Retries needed to kill process")
 		.option("--delay [n]", "Delay exit by ms")
+		.option("--kill-children", "Kill own children")
 
 	program.parse(process.argv);
 
@@ -20,8 +21,8 @@ module.exports = function (isChild) {
 		setInterval(function () {}, 60 * 1000);
 	}
 
+	var children = [];
 	if (program.children) {
-		var children = [];
 		var nestedChildren = program.children.indexOf(",") != -1;
 		var n = 0;
 		var subN = 0;
@@ -77,6 +78,11 @@ module.exports = function (isChild) {
 			if (program.log) {
 				var message = "Killed " + (isChild ? "child" : "parent") + " pid=" + process.pid + " with signal=" + signal + "\n";
 				require("fs").appendFileSync(__dirname + "/log.txt", message, "utf8");
+			}
+			if (program.killChildren) {
+				children.forEach(function (c) {
+					process.kill(c.pid);
+				});
 			}
 			if (program.delay) {
 				setTimeout(function () {

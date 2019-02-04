@@ -106,7 +106,7 @@ beforeEach(function () {
 	}
 });
 
-describe("children without signal handlers", function () {
+describe("kill", function () {
 	it("not detached", function (done) {
 		var child = childProcess.spawn("./kws-parent", { cwd: __dirname });
 		child.on("error", done);
@@ -157,7 +157,28 @@ describe("children without signal handlers", function () {
 		waitFor(function () {
 			return spawnedNumber("kws-child") == 4;
 		}, function () {
-			kill(child.pid, { debug: false }, killCallback.bind(null, done));
+			kill(child.pid, killCallback.bind(null, done));
+		});
+	});
+
+	it("allow process kill own children on exit", function (done) {
+		var child = childProcess.spawn("./kws-parent --children 2 --kill-children", { cwd: __dirname, shell: true });
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		onMessage(child, "running", function () {
+			// HACK: hook into debug output of kill()
+			var _log = console.log;
+			var killOutput = "";
+			console.log = function () {
+				killOutput += [].join.call(arguments, " "); + "\n";
+				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+				//_log.apply(console, arguments);
+			};
+			kill(child.pid, { debug: true }, function (err) {
+				console.log = _log;
+				assert.equal((killOutput.match(/Send/g) || []).length, 1);
+				killCallback(done, err);
+			});
 		});
 	});
 });
