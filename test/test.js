@@ -587,6 +587,28 @@ describe(".timeout", function () {
 			});
 		});
 	});
+
+	it("no retries and checks after timeout", function (done) {
+		var child = childProcess.spawn("./kws-parent --delay 2000", { cwd: __dirname, shell: true });
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		onMessage(child, "running", function () {
+			var _log = console.log;
+			console.log = function () {};
+			kill(child.pid, { timeout: 1000, debug: true }, function () {
+				console.log = function (text) {
+					if (text.startsWith("DEBUG")) {
+						console.log = _log;
+						done(new Error("Output after timeout: \"" + text + "\""));
+					}
+				};
+				setTimeout(function () {
+					console.log = _log;
+					kill(child.pid, killCallback.bind(null, done));
+				}, 1000);
+			});
+		});
+	});
 });
 
 describe(".usePGID", function () {
