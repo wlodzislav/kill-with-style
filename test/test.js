@@ -226,6 +226,22 @@ describe(".signal", function () {
 			});
 		});
 	});
+
+	it(".signal=SIGKILL, retries = 2, should kill on first try", function (done) {
+		var child = childProcess.spawn("./kws-parent --retries 2", { cwd: __dirname, shell: true });
+		child.on("error", done);
+		assert(isSpawned("kws-parent"));
+		var signals = [];
+		onMessage(child, "signal", function (signal) {
+			signals.push(signal);
+		});
+		onMessage(child, "running", function () {
+			kill(child.pid, { signal: "SIGKILL", retryCount: 2 }, function (err) {
+				assert.deepEqual(signals, []);
+				killCallback(done, err);
+			});
+		});
+	});
 });
 
 describe(".retryCount", function () {
