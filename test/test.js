@@ -386,7 +386,7 @@ if (process.platform != "win32") {
 }
 
 if (process.platform != "win32") {
-	describe.only(".retryCount", function () {
+	describe(".retryCount", function () {
 		it("retryCount = 3, retries = 4", function (done) {
 			var child = run("--retries 4");
 			
