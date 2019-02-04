@@ -6,10 +6,6 @@ var cy = chalk.cyan;
 var r = chalk.red;
 var gr = chalk.green;
 
-function padN(n, i) {
-	return n < 10 ? "0" + n : n;
-}
-
 function debug(message) {
 	var d = new Date();
 	console.log("DEBUG "
@@ -32,7 +28,6 @@ function parsePSOutput(fields, output) {
 		return entry;
 	});
 }
-
 
 function comparePID(a, b) {
 	return a.pid - b.pid;
@@ -79,10 +74,6 @@ function getProcessChildren(parentPID, options, callback) {
 		callback(null, childPIDs);
 	});
 }
-
-/*
-	Last retry is always SIGKILL
-*/
 
 function shallowCopy(obj) {
 	var copy = {};
@@ -172,22 +163,10 @@ function kill(pid, options, _callback) {
 		}
 	};
 
-	function checkDeadSync(pid, callback) {
-		var psOutput = childProcess.execSync("ps -A -o pid", { encoding: "utf8" });
-		var ps = parsePSOutput(["pid"], psOutput);
-		var isDead = !ps.find(function (entry) { return entry.pid == pid;});
-		if (options.debug) { debug("Check " + cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive"))); }
-		if (callback) {
-			setTimeout(function () {
-				callback(null, isDead);
-			}, 0); // why changing timeout breaks all?
-		} else {
-			return isDead;
-		}
-	}
-
-	function checkDeadAsync(pid, callback) {
+	function checkDead(pid, callback) {
+		if (options.debug) { var start = Date.now(); }
 		childProcess.exec("ps -A -o pid", { encoding: "utf8" }, function (err, psOutput) {
+			if (options.debug) { debug(".exec() took " + cy((Date.now() - start) + "ms")); }
 			if (err) { return callback(err); }
 			var ps = parsePSOutput(["pid"], psOutput);
 			var isDead = !ps.find(function (entry) { return entry.pid == pid;});
@@ -203,7 +182,6 @@ function kill(pid, options, _callback) {
 		} catch (err) {}
 	}
 
-	var checkDead = checkDeadSync;
 	var timeoutDate = Date.now() + options.timeout;
 	function tryKillParent(pid, callback) {
 		if (killed.indexOf(pid) != -1) {
