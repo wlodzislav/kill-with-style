@@ -156,7 +156,9 @@ if (process.platform == "win32") {
 		}
 		options = Object.assign(defaultOptionsWin, options);
 		_kill(pid, options, callback);
-	}
+	};
+
+	kill._normalizeOptions = _kill._normalizeOptions;
 }
 
 if (process.platform != "win32") {
@@ -284,144 +286,148 @@ describe("kill", function () {
 	});
 });
 
-describe.only(".signal", function () {
-	it(".signal=SIGTERM, retries = 0", function (done) {
-		var child = run();
-		
-		assert(isSpawnedPID(child.pid));
+if (process.platform != "win32") {
+	describe(".signal", function () {
+		it(".signal=SIGTERM, retries = 0", function (done) {
+			var child = run("--delay 1000");
+			
+			assert(isSpawnedPID(child.pid));
 
-		var signals = [];
-		onMessage(child, "signal", function (signal) {
-			signals.push(signal);
-		});
-		onMessage(child, "running", function () {
-			kill(child.pid, { signal: "SIGTERM", retryCount: 0 }, function (err) {
-				if (err) { return done(err); }
-				assert.deepEqual(signals, ["SIGTERM"]);
-				assert(isKilledPID(child.pid));
-				done();
+			var signals = [];
+			onMessage(child, "signal", function (signal) {
+				signals.push(signal);
 			});
-		});
-	});
-
-	it(".signal=SIGTERM, retries = 2", function (done) {
-		var child = run("--retries 2");
-		
-		assert(isSpawnedPID(child.pid));
-
-		var signals = [];
-		onMessage(child, "signal", function (signal) {
-			signals.push(signal);
-		});
-		onMessage(child, "running", function () {
-			kill(child.pid, { signal: "SIGTERM", retryCount: 2 }, function (err) {
-				if (err) { return done(err); }
-				assert.deepEqual(signals, ["SIGTERM", "SIGTERM", "SIGTERM"]);
-				assert(isKilledPID(child.pid));
-				done();
-			});
-		});
-	});
-
-	it(".signal=[SIGINT,SIGTERM], retries = 2", function (done) {
-		var child = run("--retries 2");
-		
-		assert(isSpawnedPID(child.pid));
-
-		var signals = [];
-		onMessage(child, "signal", function (signal) {
-			signals.push(signal);
-		});
-		onMessage(child, "running", function () {
-			kill(child.pid, { signal: ["SIGINT", "SIGTERM"], retryCount: 2 }, function (err) {
-				if (err) { return done(err); }
-				assert.deepEqual(signals, ["SIGINT", "SIGTERM", "SIGTERM"]);
-				assert(isKilledPID(child.pid));
-				done();
-			});
-		});
-	});
-
-	it(".signal=[SIGINT,SIGTERM,SIGTERM], retries = 2", function (done) {
-		var child = run("--retries 2");
-		
-		assert(isSpawnedPID(child.pid));
-
-		var signals = [];
-		onMessage(child, "signal", function (signal) {
-			signals.push(signal);
-		});
-		onMessage(child, "running", function () {
-			kill(child.pid, { signal: ["SIGINT", "SIGTERM", "SIGTERM"], retryCount: 2 }, function (err) {
-				if (err) { return done(err); }
-				assert.deepEqual(signals, ["SIGINT", "SIGTERM", "SIGTERM"]);
-				assert(isKilledPID(child.pid));
-				done();
-			});
-		});
-	});
-
-	it(".signal=SIGKILL, retries = 2, should kill on first try", function (done) {
-		var child = run("--retries 2");
-		
-		assert(isSpawnedPID(child.pid));
-
-		var signals = [];
-		onMessage(child, "signal", function (signal) {
-			signals.push(signal);
-		});
-		onMessage(child, "running", function () {
-			kill(child.pid, { signal: "SIGKILL", retryCount: 2 }, function (err) {
-				if (err) { return done(err); }
-				assert.deepEqual(signals, []);
-				assert(isKilledPID(child.pid));
-				done();
-			});
-		});
-	});
-});
-
-describe(".retryCount", function () {
-	it("retryCount = 3, retries = 4", function (done) {
-		var child = run("--retries 4");
-		
-		assert(isSpawnedPID(child.pid));
-
-		var retries = 0;
-		onMessage(child, "retry", function () {
-			retries += 1;
-		});
-		onMessage(child, "running", function () {
-			kill(child.pid, { retryCount: 3}, function (err) {
-				assert.equal(retries, 3);
-				kill(child.pid, { retryCount: 0}, function (err) {
+			onMessage(child, "running", function () {
+				kill(child.pid, { signal: "SIGTERM", retryCount: 0 }, function (err) {
 					if (err) { return done(err); }
+					assert.deepEqual(signals, ["SIGTERM"]);
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
+		});
+
+		it(".signal=SIGTERM, retries = 2", function (done) {
+			var child = run("--retries 2");
+			
+			assert(isSpawnedPID(child.pid));
+
+			var signals = [];
+			onMessage(child, "signal", function (signal) {
+				signals.push(signal);
+			});
+			onMessage(child, "running", function () {
+				kill(child.pid, { signal: "SIGTERM", retryCount: 2 }, function (err) {
+					if (err) { return done(err); }
+					assert.deepEqual(signals, ["SIGTERM", "SIGTERM", "SIGTERM"]);
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
+		});
+
+		it(".signal=[SIGINT,SIGTERM], retries = 2", function (done) {
+			var child = run("--retries 2");
+			
+			assert(isSpawnedPID(child.pid));
+
+			var signals = [];
+			onMessage(child, "signal", function (signal) {
+				signals.push(signal);
+			});
+			onMessage(child, "running", function () {
+				kill(child.pid, { signal: ["SIGINT", "SIGTERM"], retryCount: 2 }, function (err) {
+					if (err) { return done(err); }
+					assert.deepEqual(signals, ["SIGINT", "SIGTERM", "SIGTERM"]);
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
+		});
+
+		it(".signal=[SIGINT,SIGTERM,SIGTERM], retries = 2", function (done) {
+			var child = run("--retries 2");
+			
+			assert(isSpawnedPID(child.pid));
+
+			var signals = [];
+			onMessage(child, "signal", function (signal) {
+				signals.push(signal);
+			});
+			onMessage(child, "running", function () {
+				kill(child.pid, { signal: ["SIGINT", "SIGTERM", "SIGTERM"], retryCount: 2 }, function (err) {
+					if (err) { return done(err); }
+					assert.deepEqual(signals, ["SIGINT", "SIGTERM", "SIGTERM"]);
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
+		});
+
+		it(".signal=SIGKILL, retries = 2, should kill on first try", function (done) {
+			var child = run("--retries 2");
+			
+			assert(isSpawnedPID(child.pid));
+
+			var signals = [];
+			onMessage(child, "signal", function (signal) {
+				signals.push(signal);
+			});
+			onMessage(child, "running", function () {
+				kill(child.pid, { signal: "SIGKILL", retryCount: 2 }, function (err) {
+					if (err) { return done(err); }
+					assert.deepEqual(signals, []);
 					assert(isKilledPID(child.pid));
 					done();
 				});
 			});
 		});
 	});
+}
 
-	it("retryCount = 3, retries = 3", function (done) {
-		var child = run("--retries 3");
-		
-		assert(isSpawnedPID(child.pid));
+if (process.platform != "win32") {
+	describe.only(".retryCount", function () {
+		it("retryCount = 3, retries = 4", function (done) {
+			var child = run("--retries 4");
+			
+			assert(isSpawnedPID(child.pid));
 
-		var retries = 0;
-		onMessage(child, "retry", function () {
-			retries += 1;
+			var retries = 0;
+			onMessage(child, "retry", function () {
+				retries += 1;
+			});
+			onMessage(child, "running", function () {
+				kill(child.pid, { retryCount: 3}, function (err) {
+					assert.equal(retries, 3);
+					kill(child.pid, { retryCount: 0}, function (err) {
+						if (err) { return done(err); }
+						assert(isKilledPID(child.pid));
+						done();
+					});
+				});
+			});
 		});
-		onMessage(child, "running", function () {
-			kill(child.pid, { retryCount: 3 }, function (err) {
-				if (err) { return done(err); }
-				assert.equal(retries, 3);
-				assert(isKilledPID(child.pid));
-				done();
+
+		it("retryCount = 3, retries = 3", function (done) {
+			var child = run("--retries 3");
+			
+			assert(isSpawnedPID(child.pid));
+
+			var retries = 0;
+			onMessage(child, "retry", function () {
+				retries += 1;
+			});
+			onMessage(child, "running", function () {
+				kill(child.pid, { retryCount: 3 }, function (err) {
+					if (err) { return done(err); }
+					assert.equal(retries, 3);
+					assert(isKilledPID(child.pid));
+					done();
+				});
 			});
 		});
 	});
-});
+}
 
 describe(".retryInterval", function () {
 	it("retryInterval = 1000", function (done) {
@@ -471,78 +477,80 @@ describe(".retryInterval", function () {
 	});
 });
 
-describe(".timeout", function () {
-	it("timeout = 1000, delay = 0", function (done) {
-		var child = run();
-		
-		assert(isSpawnedPID(child.pid));
+if (process.platform != "win32") {
+	describe(".timeout", function () {
+		it("timeout = 1000, delay = 0", function (done) {
+			var child = run();
+			
+			assert(isSpawnedPID(child.pid));
 
-		onMessage(child, "running", function () {
-			var start = Date.now();
-			kill(child.pid, { timeout: 1000 }, function (err) {
-				if (err) { return done(err); }
-				assertEqualsDelta(Date.now() - start, 0, 500);
-				assert(isKilledPID(child.pid));
-				done();
-
-			});
-		});
-	});
-
-	it("timeout = 1000, delay = 2000", function (done) {
-		var child = run("--delay 1100");
-		
-		assert(isSpawnedPID(child.pid));
-
-		onMessage(child, "running", function () {
-			var start = Date.now();
-			kill(child.pid, { timeout: 1000 }, function (err) {
-				assert(err);
-				assertEqualsDelta(Date.now() - start, 1000, 500);
-				kill(child.pid, function (err) {
+			onMessage(child, "running", function () {
+				var start = Date.now();
+				kill(child.pid, { timeout: 1000 }, function (err) {
 					if (err) { return done(err); }
+					assertEqualsDelta(Date.now() - start, 0, 500);
 					assert(isKilledPID(child.pid));
 					done();
+
 				});
 			});
 		});
-	});
 
-	it("no retries and checks after timeout", function (done) {
-		var child = run("--delay 2000");
-		
-		assert(isSpawnedPID(child.pid));
+		it("timeout = 1000, delay = 2000", function (done) {
+			var child = run("--delay 1100");
+			
+			assert(isSpawnedPID(child.pid));
 
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			console.log = function () {
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { timeout: 1000, debug: true }, function () {
-				console.log = function (text) {
-					if (("" + arguments[0]).startsWith("DEBUG")) {
-						//_log.apply(console, arguments);
-						console.log = _log;
-						if (arguments[0].match(/Check|Retry|Send|Kill/)) {
-							done(new Error("Output after timeout: \"" + text + "\""));
-						}
-					} else {
-						_log.apply(console, arguments);
-					}
-				};
-				setTimeout(function () {
-					console.log = _log;
+			onMessage(child, "running", function () {
+				var start = Date.now();
+				kill(child.pid, { timeout: 1000 }, function (err) {
+					assert(err);
+					assertEqualsDelta(Date.now() - start, 1000, 500);
 					kill(child.pid, function (err) {
 						if (err) { return done(err); }
 						assert(isKilledPID(child.pid));
 						done();
 					});
-				}, 1000);
+				});
+			});
+		});
+
+		it("no retries and checks after timeout", function (done) {
+			var child = run("--delay 2000");
+			
+			assert(isSpawnedPID(child.pid));
+
+			onMessage(child, "running", function () {
+				// HACK: hook into debug output of kill()
+				var _log = console.log;
+				console.log = function () {
+					//_log.apply(console, arguments);
+				};
+				kill(child.pid, { timeout: 1000, debug: true }, function () {
+					console.log = function (text) {
+						if (("" + arguments[0]).startsWith("DEBUG")) {
+							//_log.apply(console, arguments);
+							console.log = _log;
+							if (arguments[0].match(/Check|Retry|Send|Kill/)) {
+								done(new Error("Output after timeout: \"" + text + "\""));
+							}
+						} else {
+							_log.apply(console, arguments);
+						}
+					};
+					setTimeout(function () {
+						console.log = _log;
+						kill(child.pid, function (err) {
+							if (err) { return done(err); }
+							assert(isKilledPID(child.pid));
+							done();
+						});
+					}, 1000);
+				});
 			});
 		});
 	});
-});
+}
 
 describe(".usePGID", function () {
 	if (process.platform == "win32") {
@@ -622,82 +630,84 @@ describe(".usePGID", function () {
 	}
 });
 
-describe(".checkInterval", function () {
-	it(".checkInterval + .retryCount = 0", function (done) {
-		var child = run("--delay 1100");
-		
-		assert(isSpawnedPID(child.pid));
+if (process.platform != "win32") {
+	describe(".checkInterval", function () {
+		it(".checkInterval + .retryCount = 0", function (done) {
+			var child = run("--delay 1100");
+			
+			assert(isSpawnedPID(child.pid));
 
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			var killOutput = "";
-			console.log = function () {
-				killOutput += [].join.call(arguments, " ") + "\n";
-				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { debug: true, retryCount: 0, timeout: 3000, checkInterval: 500 }, function (err) {
-				console.log = _log;
-				if (err) { return done(err); }
-				assert.equal((killOutput.match(/Check/g) || []).length, 4);
-				assert(isKilledPID(child.pid));
-				done();
+			onMessage(child, "running", function () {
+				// HACK: hook into debug output of kill()
+				var _log = console.log;
+				var killOutput = "";
+				console.log = function () {
+					killOutput += [].join.call(arguments, " ") + "\n";
+					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+					//_log.apply(console, arguments);
+				};
+				kill(child.pid, { debug: true, retryCount: 0, timeout: 3000, checkInterval: 500 }, function (err) {
+					console.log = _log;
+					if (err) { return done(err); }
+					assert.equal((killOutput.match(/Check/g) || []).length, 4);
+					assert(isKilledPID(child.pid));
+					done();
 
+				});
+			});
+		});
+
+		it(".checkInterval < .retryInterval", function (done) {
+			var child = run("--retries 1");
+			
+			assert(isSpawnedPID(child.pid));
+
+			onMessage(child, "running", function () {
+				// HACK: hook into debug output of kill()
+				var _log = console.log;
+				var killOutput = "";
+				console.log = function () {
+					killOutput += [].join.call(arguments, " ") + "\n";
+					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+					//_log.apply(console, arguments);
+				};
+				kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 500, retryInterval: 1999 }, function (err) {
+					console.log = _log;
+					if (err) { return done(err); }
+					assert.equal((killOutput.match(/Check/g) || []).length, 4);
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
+		});
+
+		it(".checkInterval > .retryInterval", function (done) {
+			var child = run("--retries 1");
+			
+			assert(isSpawnedPID(child.pid));
+
+			onMessage(child, "running", function () {
+				// HACK: hook into debug output of kill()
+				var _log = console.log;
+				var killOutput = "";
+				console.log = function () {
+					killOutput += [].join.call(arguments, " ") + "\n";
+					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+					//_log.apply(console, arguments);
+				};
+				kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 1500, retryInterval: 1000 }, function (err) {
+					console.log = _log;
+					if (err) { return done(err); }
+					var checksBeforeRetry = (killOutput.slice(0, killOutput.indexOf("Retry")).match(/Check/g) || []).length
+					assert.equal(checksBeforeRetry, 1);
+					assert(isKilledPID(child.pid));
+					done();
+
+				});
 			});
 		});
 	});
-
-	it(".checkInterval < .retryInterval", function (done) {
-		var child = run("--retries 1");
-		
-		assert(isSpawnedPID(child.pid));
-
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			var killOutput = "";
-			console.log = function () {
-				killOutput += [].join.call(arguments, " ") + "\n";
-				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 500, retryInterval: 1999 }, function (err) {
-				console.log = _log;
-				if (err) { return done(err); }
-				assert.equal((killOutput.match(/Check/g) || []).length, 4);
-				assert(isKilledPID(child.pid));
-				done();
-			});
-		});
-	});
-
-	it(".checkInterval > .retryInterval", function (done) {
-		var child = run("--retries 1");
-		
-		assert(isSpawnedPID(child.pid));
-
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			var killOutput = "";
-			console.log = function () {
-				killOutput += [].join.call(arguments, " ") + "\n";
-				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 1500, retryInterval: 1000 }, function (err) {
-				console.log = _log;
-				if (err) { return done(err); }
-				var checksBeforeRetry = (killOutput.slice(0, killOutput.indexOf("Retry")).match(/Check/g) || []).length
-				assert.equal(checksBeforeRetry, 1);
-				assert(isKilledPID(child.pid));
-				done();
-
-			});
-		});
-	});
-});
+}
 
 describe("options priority", function () {
 	it(".retryInterval=500", function () {

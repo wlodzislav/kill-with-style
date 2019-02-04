@@ -2,7 +2,7 @@
 
 Kill child processes gracefully and surely with all their children. With retries, custom signals, timeout and customizable retry/check intervals.
 
-Doesn't support Windows!
+Fully tested. Supports MacOS/Linux/Windows.
 
 ```javascript
 var kill = require("kill-with-style");
@@ -69,7 +69,7 @@ When setting timeouts keep in mind that children will be killed only afrer paren
 
 ### .signal
 
-By default = `"SIGINT"`.
+By default = `"SIGINT"`. Isn't supported on Windows.
 
 Set signal that will be send to child process. If value is array of signals, each signal will be use for the Nth try.
 

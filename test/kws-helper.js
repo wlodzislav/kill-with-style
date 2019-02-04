@@ -50,7 +50,7 @@ if (program.children) {
 			if (program.detached) {
 				cmd += " --detached";
 			}
-			
+
 			var splitted = cmd.split(" ");
 			child = childProcess.spawn(splitted[0], splitted.slice(1), {
 				cwd: __dirname,
@@ -118,4 +118,3 @@ function onSignal(signal) {
 
 process.on("SIGINT", onSignal("SIGINT"));
 process.on("SIGTERM", onSignal("SIGTERM"));
-
