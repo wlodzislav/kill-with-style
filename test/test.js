@@ -41,8 +41,7 @@ function killCallback(done, err) {
 	if (!isKilled("kws-child")) {
 		return done(new Error("Not killed"));
 	}
-	setTimeout(done, 1000);
-	//done();
+	done();
 }
 
 function splitMessages(parent, callback) {
@@ -92,7 +91,8 @@ if (isSpawned("kws-parent") || isSpawned("kws-child")) {
 	console.log(chalk.red("Try to kill kws-* processes from the previous run"));
 	killBash("kws-");
 	if (isSpawned("kws-parent") || isSpawned("kws-child")) {
-		throw new Error("Error: Can't run tests, kill all kws-* processes manually");
+		console.error(chalk.red("Error: Can't run tests, kill all kws-* processes manually"));
+		process.exit(1);
 	}
 }
 
@@ -594,12 +594,17 @@ describe(".timeout", function () {
 		assert(isSpawned("kws-parent"));
 		onMessage(child, "running", function () {
 			var _log = console.log;
-			console.log = function () {};
+			console.log = function () {
+				//_log.apply(console, arguments);
+			};
 			kill(child.pid, { timeout: 1000, debug: true }, function () {
 				console.log = function (text) {
 					if (("" + arguments[0]).startsWith("DEBUG")) {
+						//_log.apply(console, arguments);
 						console.log = _log;
-						done(new Error("Output after timeout: \"" + text + "\""));
+						if (arguments[0].match(/Check|Retry|Send|Kill/)) {
+							done(new Error("Output after timeout: \"" + text + "\""));
+						}
 					} else {
 						_log.apply(console, arguments);
 					}
@@ -625,6 +630,7 @@ describe(".usePGID", function () {
 			console.log = function () {
 				killOutput += [].join.call(arguments, " "); + "\n";
 				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+				//_log.apply(console, arguments);
 			};
 			kill(child.pid, { debug: true }, function (err) {
 				console.log = _log;
@@ -649,6 +655,7 @@ describe(".usePGID", function () {
 			console.log = function () {
 				killOutput += [].join.call(arguments, " "); + "\n";
 				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+				//_log.apply(console, arguments);
 			};
 			kill(child.pid, { debug: true }, function (err) {
 				console.log = _log;
