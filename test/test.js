@@ -118,19 +118,45 @@ function run(cliArguments, options) {
 	}
 	cliArguments = cliArguments || "";
 	options = options || {};
-	options = Object.assign({ cwd: __dirname, shell: true }, options);
+	options = Object.assign({ cwd: __dirname }, options);
 	var cmd = "node kws-helper.js " + cliArguments;
 
 	if (process.platform == "win32") {
 		cmd = "node.exe kws-helper.js " + cliArguments;
 	}
 
-	var child = childProcess.spawn(cmd, options);
+	var child;
+	if (options.shell == true) {
+		child = childProcess.spawn(cmd, options);
+	} else {
+		var splitted = cmd.split(" ");
+		child = childProcess.spawn(splitted[0], splitted.slice(1), options);
+	}
+
 	child.stderr.on("data", function (data) {
 		console.error(data.toString());
 		throw new Error("Stderr output from spawned helper");
 	});
 	return child;
+}
+
+if (process.platform == "win32") {
+	var defaultOptionsWin = {
+		timeout: 100000,
+		checkInterval: 500,
+		retryInterval: 2000
+	};
+
+	var _kill = kill;
+	kill = function (pid, callback) {
+		var options = {};
+		if (arguments.length == 3) {
+			options = arguments[1];
+			callback = arguments[2];
+		}
+		options = Object.assign(defaultOptionsWin, options);
+		_kill(pid, options, callback);
+	}
 }
 
 if (process.platform != "win32") {
@@ -159,7 +185,8 @@ describe("kill", function () {
 	});
 
 	it("detached", function (done) {
-		var child = run({ detached: true });
+		// shell: false for Windows
+		var child = run({ detached: true, shell: false });
 		
 		assert(isSpawnedPID(child.pid));
 
@@ -172,21 +199,33 @@ describe("kill", function () {
 		});
 	});
 
-	if (process.platform != "win32") {
-		it("not inside shell", function (done) {
-			var child = childProcess.spawn("node", ["kws-helper.js"], { cwd: __dirname });
-			
-			assert(isSpawnedPID(child.pid));
+	it("not inside shell", function (done) {
+		var child = run({ shell: false });
 
-			onMessage(child, "running", function () {
-				kill(child.pid, function (err) {
-					if (err) { return done(err); }
-					assert(isKilledPID(child.pid));
-					done();
-				});
+		assert(isSpawnedPID(child.pid));
+
+		onMessage(child, "running", function () {
+			kill(child.pid, function (err) {
+				if (err) { return done(err); }
+				assert(isKilledPID(child.pid));
+				done();
 			});
 		});
-	}
+	});
+
+	it("inside shell", function (done) {
+		var child = run({ shell: true });
+
+		assert(isSpawnedPID(child.pid));
+
+		onMessage(child, "running", function () {
+			kill(child.pid, function (err) {
+				if (err) { return done(err); }
+				assert(isKilledPID(child.pid));
+				done();
+			});
+		});
+	});
 
 	it("with children", function (done) {
 		var child = run("--children 2");
@@ -195,6 +234,7 @@ describe("kill", function () {
 
 		waitForNChildren(child, 2, function (children) {
 			kill(child.pid, function (err) {
+				assert(isKilledPID(child.pid));
 				if (err) { return done(err); }
 				assert(isKilledPID(child.pid));
 				assert(isKilledPID(children));
@@ -228,11 +268,11 @@ describe("kill", function () {
 			var _log = console.log;
 			var killOutput = "";
 			console.log = function () {
-				killOutput += [].join.call(arguments, " "); + "\n";
+				killOutput += [].join.call(arguments, " ") + "\n";
 				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
 				//_log.apply(console, arguments);
 			};
-			kill(child.pid, { debug: true }, function (err) {
+			kill(child.pid, { debug: true, retryCount: 0 }, function (err) {
 				console.log = _log;
 				if (err) { return done(err); }
 				assert.equal((killOutput.match(/Send/g) || []).length, 1);
@@ -244,7 +284,7 @@ describe("kill", function () {
 	});
 });
 
-describe(".signal", function () {
+describe.only(".signal", function () {
 	it(".signal=SIGTERM, retries = 0", function (done) {
 		var child = run();
 		
@@ -255,7 +295,7 @@ describe(".signal", function () {
 			signals.push(signal);
 		});
 		onMessage(child, "running", function () {
-			kill(child.pid, { signal: "SIGTERM"}, function (err) {
+			kill(child.pid, { signal: "SIGTERM", retryCount: 0 }, function (err) {
 				if (err) { return done(err); }
 				assert.deepEqual(signals, ["SIGTERM"]);
 				assert(isKilledPID(child.pid));
@@ -516,7 +556,7 @@ describe(".usePGID", function () {
 				var _log = console.log;
 				var killOutput = "";
 				console.log = function () {
-					killOutput += [].join.call(arguments, " "); + "\n";
+					killOutput += [].join.call(arguments, " ") + "\n";
 					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
 					//_log.apply(console, arguments);
 				};
@@ -542,7 +582,7 @@ describe(".usePGID", function () {
 				var _log = console.log;
 				var killOutput = "";
 				console.log = function () {
-					killOutput += [].join.call(arguments, " "); + "\n";
+					killOutput += [].join.call(arguments, " ") + "\n";
 					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
 					//_log.apply(console, arguments);
 				};
@@ -566,7 +606,7 @@ describe(".usePGID", function () {
 				var _log = console.log;
 				var killOutput = "";
 				console.log = function () {
-					killOutput += [].join.call(arguments, " "); + "\n";
+					killOutput += [].join.call(arguments, " ") + "\n";
 					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
 					//_log.apply(console, arguments);
 				};
@@ -593,7 +633,7 @@ describe(".checkInterval", function () {
 			var _log = console.log;
 			var killOutput = "";
 			console.log = function () {
-				killOutput += [].join.call(arguments, " "); + "\n";
+				killOutput += [].join.call(arguments, " ") + "\n";
 				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
 				//_log.apply(console, arguments);
 			};
@@ -618,7 +658,7 @@ describe(".checkInterval", function () {
 			var _log = console.log;
 			var killOutput = "";
 			console.log = function () {
-				killOutput += [].join.call(arguments, " "); + "\n";
+				killOutput += [].join.call(arguments, " ") + "\n";
 				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
 				//_log.apply(console, arguments);
 			};
@@ -642,7 +682,7 @@ describe(".checkInterval", function () {
 			var _log = console.log;
 			var killOutput = "";
 			console.log = function () {
-				killOutput += [].join.call(arguments, " "); + "\n";
+				killOutput += [].join.call(arguments, " ") + "\n";
 				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
 				//_log.apply(console, arguments);
 			};

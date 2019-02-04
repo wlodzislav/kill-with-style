@@ -19,7 +19,7 @@
   ],
   "main": "index.js",
   "scripts": {
-    "test": "mocha --colors test/test.js --timeout 5000"
+    "test": "mocha --colors test/test.js --timeout 10000"
   },
   "repository": "git://github.com/wlodzislav/kill-with-style.git",
   "author": "Vladislav Kaminsky <wlodzislav@ya.ru>",

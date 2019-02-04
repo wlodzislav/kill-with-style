@@ -36,6 +36,11 @@ if (program.children) {
 	for (var i = 0; i < n; i++) {
 		(function () {
 			var cmd = "node kws-helper.js";
+
+			if (process.platform == "win32") {
+				cmd = "node.exe kws-helper.js";
+			}
+
 			if (subN) {
 				cmd += " --children " + subN;
 			}
@@ -45,11 +50,13 @@ if (program.children) {
 			if (program.detached) {
 				cmd += " --detached";
 			}
-			var child = childProcess.spawn(cmd, {
+			
+			var splitted = cmd.split(" ");
+			child = childProcess.spawn(splitted[0], splitted.slice(1), {
 				cwd: __dirname,
-				shell: true,
 				detached: program.detached
 			});
+
 			child.on("error", function (err) {
 				console.error(err);
 				process.exit(1);

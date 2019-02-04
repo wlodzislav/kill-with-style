@@ -281,12 +281,19 @@ function kill(pid, options, callback) {
 				if (err) { return callback(err); }
 
 				if (options.debug) {
+					var checkStart = Date.now();
 					debug("Try to kill children of " + cy("pid=" + pid));
 				}
 
 				async.each(children, function (pid, callback) {
+					if (options.debug) { debug("Check " + cy("pid=" + pid)); }
 					checkDead(pid, function (err, isDead) {
 						if (err) { return callback(err); }
+						
+						if (options.debug) {
+							debug("checkDead exec() took " + cy((Date.now() - checkStart) + "ms"));
+							debug(cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive")));
+						}
 
 						if (isDead) {
 							callback();
