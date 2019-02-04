@@ -28,7 +28,6 @@ function killBash(name) {
 }
 
 function killCallback(done, err) {
-	//console.log("killCallback");
 	if (arguments.length == 1) {
 		err = arguments[0];
 		done = function () {};
@@ -42,7 +41,8 @@ function killCallback(done, err) {
 	if (!isKilled("kws-child")) {
 		return done(new Error("Not killed"));
 	}
-	done();
+	setTimeout(done, 1000);
+	//done();
 }
 
 function splitMessages(parent, callback) {
@@ -597,9 +597,11 @@ describe(".timeout", function () {
 			console.log = function () {};
 			kill(child.pid, { timeout: 1000, debug: true }, function () {
 				console.log = function (text) {
-					if (text.startsWith("DEBUG")) {
+					if (("" + arguments[0]).startsWith("DEBUG")) {
 						console.log = _log;
 						done(new Error("Output after timeout: \"" + text + "\""));
+					} else {
+						_log.apply(console, arguments);
 					}
 				};
 				setTimeout(function () {
@@ -622,6 +624,7 @@ describe(".usePGID", function () {
 			var killOutput = "";
 			console.log = function () {
 				killOutput += [].join.call(arguments, " "); + "\n";
+				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
 			};
 			kill(child.pid, { debug: true }, function (err) {
 				console.log = _log;
@@ -645,6 +648,7 @@ describe(".usePGID", function () {
 			var killOutput = "";
 			console.log = function () {
 				killOutput += [].join.call(arguments, " "); + "\n";
+				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
 			};
 			kill(child.pid, { debug: true }, function (err) {
 				console.log = _log;
@@ -656,7 +660,7 @@ describe(".usePGID", function () {
 });
 
 describe(".checkInterval", function () {
-	it(".checkInterval < .retryCount = 0", function (done) {
+	it(".checkInterval + .retryCount = 0", function (done) {
 		var child = childProcess.spawn("./kws-parent --delay 1100", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
@@ -666,6 +670,8 @@ describe(".checkInterval", function () {
 			var killOutput = "";
 			console.log = function () {
 				killOutput += [].join.call(arguments, " "); + "\n";
+				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+				//_log.apply(console, arguments);
 			};
 			kill(child.pid, { debug: true, retryCount: 0, timeout: 3000, checkInterval: 500 }, function (err) {
 				console.log = _log;
@@ -685,8 +691,10 @@ describe(".checkInterval", function () {
 			var killOutput = "";
 			console.log = function () {
 				killOutput += [].join.call(arguments, " "); + "\n";
+				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+				//_log.apply(console, arguments);
 			};
-			kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 500, retryInterval: 1000 }, function (err) {
+			kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 500, retryInterval: 1999 }, function (err) {
 				console.log = _log;
 				assert.equal((killOutput.match(/Check/g) || []).length, 4);
 				killCallback(done, err);
@@ -694,7 +702,7 @@ describe(".checkInterval", function () {
 		});
 	});
 
-	it(".checkInterval < .retryInterval", function (done) {
+	it(".checkInterval > .retryInterval", function (done) {
 		var child = childProcess.spawn("./kws-parent --retries 1", { cwd: __dirname, shell: true });
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
@@ -704,6 +712,8 @@ describe(".checkInterval", function () {
 			var killOutput = "";
 			console.log = function () {
 				killOutput += [].join.call(arguments, " "); + "\n";
+				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+				//_log.apply(console, arguments);
 			};
 			kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 1500, retryInterval: 1000 }, function (err) {
 				console.log = _log;

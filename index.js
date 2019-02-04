@@ -196,86 +196,61 @@ function kill(pid, options, _callback) {
 		});
 	}
 	
-	var checkDead = checkDeadSync;
+	function sendSignal(pid, signal) {
+		try {
+			if (options.debug) { debug("Send " + cy("signal=" + signal) + " to " + cy("pid=" + pid)); }
+			process.kill(pid, signal);
+		} catch (err) {}
+	}
 
+	var checkDead = checkDeadSync;
+	var timeoutDate = Date.now() + options.timeout;
 	function tryKillParent(pid, callback) {
 		if (killed.indexOf(pid) != -1) {
 			return callback();
 		};
 
-		var retryTimeout;
-		var retries = 0;
+		var tryIndex = 0;
+		var checkTimeoutM;
+		var retryTimeoutM = setTimeout(function retryF() {
+			if (timedout) { return; }
 
-		function sendSignal() {
-			var signal = options.signal[retries] || options.signal[options.signal.length - 1];
-			try {
-				if (options.debug) { debug("Send " + cy("signal=" + signal) + " to " + cy("pid=" + pid)); }
-				process.kill(pid, signal);
-			} catch (err) {}
-		}
+			var index = tryIndex;
+			if (options.debug && index > 0) { debug("Retry to kill " + cy("pid=" + pid)); }
+			var retryStart = Date.now();
+			var signal = options.signal[index];
+			sendSignal(pid, signal);
+			tryIndex += 1;
+			checkTimeoutM = setTimeout(function checkF() {
+				if (timedout) { return; }
 
-		function retry() {
-			if (options.debug) { debug("Retry to kill " + cy("pid=" + pid)); }
-			retries++;
-			sendSignal();
-			checkDeadContinuous();
-		}
+				var start = Date.now();
+				var cs = Date.now();
+				checkDead(pid, function (err, isDead) {
+					if (err) { return callback(err); }
+					
+					if (isDead) {
+						killed.push(pid);
+						if (options.debug) { debug("Killed " + gr("pid=" + pid)); }
+						return callback();
+					}
 
-		var checkDeadTimeout;
-		function checkDeadContinuous() {
-			clearTimeout(checkDeadTimeout);
-			checkDead(pid, function cc(err, isDead) {
-				// PROBLEM: retry+checkDeadContinuous happens between checkDead and cc
-				// that way cc executes 2 times and sets 2 next timeouts
-				if (err) {
-					clearTimeout(retryTimeout);
-					clearTimeout(checkDeadTimeout);
-					return callback(err);
-				}
-
-				if (isDead) {
-					clearTimeout(retryTimeout);
-					killed.push(pid);
-					if (options.debug) { debug("Killed " + gr("pid=" + pid)); }
-					callback();
-				} else {
-					clearTimeout(checkDeadTimeout);
-					checkDeadTimeout = setTimeout(function checkDeadAgain() {
-						checkDead(pid, function (err, isDead) {
-							if (err) {
-								clearTimeout(retryTimeout);
-								clearTimeout(checkDeadTimeout);
-								return callback(err);
-							}
-
-							if (isDead) {
-								clearTimeout(retryTimeout);
-								clearTimeout(checkDeadTimeout);
-								if (options.debug) { debug("Killed " + gr("pid=" + pid)); }
-								killed.push(pid);
-								return callback();
-							}
-							checkDeadTimeout = setTimeout(checkDeadAgain, options.checkInterval);
-							onTimeout.push(clearTimeout.bind(null, checkDeadTimeout));
-						});
-					}, options.checkInterval);
-					onTimeout.push(clearTimeout.bind(null, checkDeadTimeout));
-				}
-			});
-		}
-
-		if (options.retryCount != 0) {
-			retryTimeout = setTimeout(function onRetryTimeout() {
-				retry();
-				if (retries < options.retryCount) {
-					var interval = options.retryInterval[retries] || options.retryInterval[options.retryInterval.length - 1];
-					retryTimeout = setTimeout(onRetryTimeout, interval);
-				}
-			}, options.retryInterval[0]);
-		}
-
-		sendSignal();
-		checkDeadContinuous();
+					var nextCheck = Math.max(Date.now(), start + options.checkInterval);
+					if (index < options.retryCount) {
+						var nextRetry = retryStart + options.retryInterval[index];
+						if (nextCheck < nextRetry) {
+							checkTimeoutM = setTimeout(checkF, nextCheck - Date.now());
+						} else {
+							setTimeout(retryF, Math.max(0, nextRetry - Date.now()));
+						}
+					} else {
+						if (nextCheck < timeoutDate) {
+							checkTimeoutM = setTimeout(checkF, nextCheck - Date.now());
+						}
+					}
+				});
+			}, Math.min(options.checkInterval, options.retryInterval));
+		}, 0);
 	}
 
 	var pidsScheduled = [];
@@ -300,14 +275,10 @@ function kill(pid, options, _callback) {
 		});
 	}
 
-	function tryKillChildren(children, callback) {
-	}
-
-	var onTimeout = [];
+	var timedout = false;
 	var timeoutTimeout = setTimeout(function () {
+		timedout = true;
 		if (options.debug) { debug(r("Timedout") + " killing " + cy("pid=" + pid)); }
-		onTimeout.forEach(function (c) { c(); });
-
 		var err = new Error("Timeout. Can't kill process with pid = " + pid);
 		callback(err);
 	}, options.timeout);
