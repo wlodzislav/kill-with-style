@@ -43,39 +43,41 @@ function getProcessChildren(parentPID, options, callback) {
 		debug("Get children for " + cy("pid=" + parentPID));
 	}
 	var usePGID = options.usePGID;
-	var psOutput = childProcess.execSync("ps -A -o ppid,pgid,pid", { encoding: "utf8" });
-	var ps = parsePSOutput(["ppid", "pgid", "pid"], psOutput);
-	var children = {};
-	var parentEntryIndex = ps.findIndex(function (entry) {
-		return entry.pid == parentPID; });
+	childProcess.exec("ps -A -o ppid,pgid,pid", { encoding: "utf8" }, function (err, psOutput) {
+		if (err) { return callback(err); }
+		var ps = parsePSOutput(["ppid", "pgid", "pid"], psOutput);
+		var children = {};
+		var parentEntryIndex = ps.findIndex(function (entry) {
+			return entry.pid == parentPID; });
 
-	if (parentEntryIndex != -1) {
-		parentEntry = ps[parentEntryIndex];
-		ps.splice(parentEntryIndex, 1);
-	}
+		if (parentEntryIndex != -1) {
+			parentEntry = ps[parentEntryIndex];
+			ps.splice(parentEntryIndex, 1);
+		}
 
-	if (!parentEntry || parentEntry.pgid != parentPID) {
-		if (options.debug && usePGID) {
-			if (!parentEntry) {
-				debug("Parent " + cy("pid=" + parentPID) + " is dead " + r(".usePGID = false") + " for getting children");
+		if (!parentEntry || parentEntry.pgid != parentPID) {
+			if (options.debug && usePGID) {
+				if (!parentEntry) {
+					debug("Parent " + cy("pid=" + parentPID) + " is dead " + r(".usePGID = false") + " for getting children");
+				}
+				if (parentEntry.pgid != parentPID) {
+					debug("Parent " + cy("pid=" + parentPID) + " pid !== pgid " + r(".usePGID = false") + " for getting children");
+				}
 			}
-			if (parentEntry.pgid != parentPID) {
-				debug("Parent " + cy("pid=" + parentPID) + " pid !== pgid " + r(".usePGID = false") + " for getting children");
-			}
+			usePGID = false;
 		}
-		usePGID = false;
-	}
 
-	ps.sort(comparePID).forEach(function (entry) {
-		if (entry.ppid == parentPID || children[entry.ppid]) {
-			children[entry.pid] = entry;
-		}
-		if (usePGID && entry.pgid == parentPID) {
-			children[entry.pid] = entry;
-		}
+		ps.sort(comparePID).forEach(function (entry) {
+			if (entry.ppid == parentPID || children[entry.ppid]) {
+				children[entry.pid] = entry;
+			}
+			if (usePGID && entry.pgid == parentPID) {
+				children[entry.pid] = entry;
+			}
+		});
+		var childPIDs = Object.keys(children).map(Number);
+		callback(null, childPIDs);
 	});
-	var childPIDs = Object.keys(children).map(Number);
-	callback(null, childPIDs);
 }
 
 /*
@@ -170,15 +172,32 @@ function kill(pid, options, _callback) {
 		}
 	};
 
-	function isDead(pid) {
+	function checkDeadSync(pid, callback) {
 		var psOutput = childProcess.execSync("ps -A -o pid", { encoding: "utf8" });
 		var ps = parsePSOutput(["pid"], psOutput);
 		var isDead = !ps.find(function (entry) { return entry.pid == pid;});
 		if (options.debug) { debug("Check " + cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive"))); }
-		return isDead;
+		if (callback) {
+			setTimeout(function () {
+				callback(null, isDead);
+			}, 0); // why changing timeout breaks all?
+		} else {
+			return isDead;
+		}
 	}
 
-	var checkDeadIterval;
+	function checkDeadAsync(pid, callback) {
+		childProcess.exec("ps -A -o pid", { encoding: "utf8" }, function (err, psOutput) {
+			if (err) { return callback(err); }
+			var ps = parsePSOutput(["pid"], psOutput);
+			var isDead = !ps.find(function (entry) { return entry.pid == pid;});
+			if (options.debug) { debug("Check " + cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive"))); }
+			callback(null, isDead);
+		});
+	}
+	
+	var checkDead = checkDeadSync;
+
 	function tryKillParent(pid, callback) {
 		if (killed.indexOf(pid) != -1) {
 			return callback();
@@ -202,26 +221,47 @@ function kill(pid, options, _callback) {
 			checkDeadContinuous();
 		}
 
+		var checkDeadTimeout;
 		function checkDeadContinuous() {
-			clearInterval(checkDeadIterval);
-
-			if (isDead(pid)) {
-				clearTimeout(retryTimeout);
-				clearInterval(checkDeadIterval);
-				killed.push(pid);
-				if (options.debug) { debug("Killed " + gr("pid=" + pid)); }
-				return callback();
-			}
-
-			checkDeadIterval = setInterval(function () {
-				if (isDead(pid)) {
+			clearTimeout(checkDeadTimeout);
+			checkDead(pid, function cc(err, isDead) {
+				// PROBLEM: retry+checkDeadContinuous happens between checkDead and cc
+				// that way cc executes 2 times and sets 2 next timeouts
+				if (err) {
 					clearTimeout(retryTimeout);
-					clearInterval(checkDeadIterval);
-					if (options.debug) { debug("Killed " + gr("pid=" + pid)); }
-					killed.push(pid);
-					callback();
+					clearTimeout(checkDeadTimeout);
+					return callback(err);
 				}
-			}, options.checkInterval);
+
+				if (isDead) {
+					clearTimeout(retryTimeout);
+					killed.push(pid);
+					if (options.debug) { debug("Killed " + gr("pid=" + pid)); }
+					callback();
+				} else {
+					clearTimeout(checkDeadTimeout);
+					checkDeadTimeout = setTimeout(function checkDeadAgain() {
+						checkDead(pid, function (err, isDead) {
+							if (err) {
+								clearTimeout(retryTimeout);
+								clearTimeout(checkDeadTimeout);
+								return callback(err);
+							}
+
+							if (isDead) {
+								clearTimeout(retryTimeout);
+								clearTimeout(checkDeadTimeout);
+								if (options.debug) { debug("Killed " + gr("pid=" + pid)); }
+								killed.push(pid);
+								return callback();
+							}
+							checkDeadTimeout = setTimeout(checkDeadAgain, options.checkInterval);
+							onTimeout.push(clearTimeout.bind(null, checkDeadTimeout));
+						});
+					}, options.checkInterval);
+					onTimeout.push(clearTimeout.bind(null, checkDeadTimeout));
+				}
+			});
 		}
 
 		if (options.retryCount != 0) {
@@ -263,9 +303,11 @@ function kill(pid, options, _callback) {
 	function tryKillChildren(children, callback) {
 	}
 
+	var onTimeout = [];
 	var timeoutTimeout = setTimeout(function () {
 		if (options.debug) { debug(r("Timedout") + " killing " + cy("pid=" + pid)); }
-		clearInterval(checkDeadIterval);
+		onTimeout.forEach(function (c) { c(); });
+
 		var err = new Error("Timeout. Can't kill process with pid = " + pid);
 		callback(err);
 	}, options.timeout);
