@@ -4,6 +4,8 @@ Kill child processes gracefully and surely with all their children. With retries
 
 Fully tested. Supports MacOS/Linux/Windows.
 
+When using on Windows make sure to make `.timeout` and `.checkInterval` larger, especially when there is need to kill multiple children. On Windows `WMIC` is used for getting process children and checking if it's dead. It is slow, about 300-400ms per check!
+
 ```javascript
 var kill = require("kill-with-style");
 
@@ -60,16 +62,31 @@ Send `SIGINT`, wait 10000, send `SIGKILL`, wait 1000 until timeout.
  - [x] Set timeout
  - [x] Set check interval for processes that die after delay
  - [x] Use PGID on mac/linux to kill children that are spawned between sending parent signal and checking (for detached processes only)
+ - [x] Supports Windows
 
-## Options
+## kill(pid, [options], callback)
+
+[.signal](#.signal) - signal to send to child when `process.kill(pid, signal)`
+
+[.timeout](#.timeout) - after which return with error
+
+[.retryInterval](#.retryInterval) - intervals between sending of kill signal
+
+[.retryCount](#.retryCount) - number of retries
+
+[.checkInterval](#.checkInterval) - interval between checks if process is dead
+
+[.usePGID](#.usePGID) - use PGID on *nix systems
 
 All options except `.timeout` are applied when trying to kill children.
 
 When setting timeouts keep in mind that children will be killed only afrer parent process is dead.
 
-### .signal
+On Windows `.signal` is not supported, options `.retryInterval` and `.retryCount` will most probably do nothing when killing other node.js processes. On Windows `process.kill()` is killing children without ability for them to postpone their exit.
 
-By default = `"SIGINT"`. Isn't supported on Windows.
+### .signal <a name=".signal" href="#.signal">#</a>
+
+By default = `"SIGINT"`. Isn't supported on Windows, it doen't support sending signals by PID.
 
 Set signal that will be send to child process. If value is array of signals, each signal will be use for the Nth try.
 
@@ -95,13 +112,13 @@ Send `SIGINT`, send `SIGINT`, send `SIGKILL`.
 
 Send `SIGINT`, send `SIGINT`, send `SIGKILL`, send `SIGKILL`.
 
-### .timeout
+### .timeout <a name=".timeout" href="#.timeout">#</a>
 
 By default = `2000`. In milliseconds.
 
 After specified millisecons module will stop trying to kill process and return error.
 
-### .retryInterval
+### .retryInterval <a name=".retryInterval" href="#.retryInterval">#</a>
 
 By default = `2000`. In milliseconds.
 
@@ -142,7 +159,7 @@ Try to kill, wait 500, retry, wait 200, retry, wait 100, retry, wait until timeo
 
 Try to kill, wait 500, retry, wait 100, retry, wait 100, retry, wait until timeout.
 
-### .retryCount
+### .retryCount <a name=".retryCount" href="#.retryCount">#</a>
 
 By default = `3`.
 
@@ -150,7 +167,7 @@ Set number of retries to kill the process. Total tries will be `.retryCount + 1`
 
 If `.retryInterval` is not specified, it will be calculated as `.timeout / (.retryCount + 1)`.
 
-### .checkInterval
+### .checkInterval <a name=".checkInterval" href="#.checkInterval">#</a>
 
 By default = `50`. In milliseconds.
 
@@ -158,7 +175,7 @@ Interval of checks after sending signal. Will try to check if process is dead un
 
 If `.checkInterval > .retryInterval` it will check if process is dead exactly once.
 
-### .usePGID
+### .usePGID <a name=".usePGID" href="#.usePGID">#</a>
 
 By default = `true`.
 
