@@ -87,40 +87,58 @@ function normalizeOptions(options) {
 	return options;
 }
 
-function parsePSOutput(fields, output) {
-	return output.split("\n").slice(1).filter(Boolean).map(function (line) {
-		var entry = {};
-		line.split(/\s+/).filter(Boolean).forEach(function (field, i) {
-			if (+field == field) {
-				field = +field;
-			}
-			entry[fields[i]] = field;
-		})
-		return entry;
+function getProcessesList(callback) {
+	var cmd = "ps -A -o ppid,pgid,pid";
+	var fields = ["ppid", "pgid", "pid"];
+
+	if (process.platform == "win32") {
+		cmd = "wmic PROCESS GET ParentProcessId,ProcessId";
+		fields = ["ppid", "pid"];
+	}
+
+	childProcess.exec(cmd, { encoding: "utf8" }, function (err, output) {
+		if (err) { return callback(err); }
+
+		var ps = output.split("\n").slice(1).filter(Boolean).map(function (line) {
+			var entry = {};
+			line.split(/\s+/).filter(Boolean).forEach(function (field, i) {
+				if (+field == field) {
+					field = +field;
+				}
+				entry[fields[i]] = field;
+			})
+			return entry;
+		});
+
+		callback(null, ps);
 	});
 }
 
 function getProcessChildren(parentPID, options, callback) {
 	var usePGID = options.usePGID;
-	var execStart = Date.now();
-	childProcess.exec("ps -A -o ppid,pgid,pid", { encoding: "utf8" }, function (err, psOutput) {
-		if (options.debug) {
-			debug("getProcessChildren exec() took " + cy((Date.now() - execStart) + "ms"));
-		}
 
+	if (usePGID && process.platform == "win32") {
+		if (options.debug) {
+			debug("Can't use PGID on Windows " + r(".usePGID = false") + " for getting children");
+		}
+		usePGID = false;
+	}
+
+	var execStart = Date.now();
+	getProcessesList(function (err, ps) {
 		if (err) { return callback(err); }
 
-		var ps = parsePSOutput(["ppid", "pgid", "pid"], psOutput);
-		var children = {};
-		var parentEntryIndex = ps.findIndex(function (entry) {
-			return entry.pid == parentPID; });
+		if (options.debug) {
+			debug("getProcessesList exec() took " + cy((Date.now() - execStart) + "ms"));
+		}
 
+		var parentEntryIndex = ps.findIndex(function (entry) { return entry.pid == parentPID; });
 		if (parentEntryIndex != -1) {
 			parentEntry = ps[parentEntryIndex];
 			ps.splice(parentEntryIndex, 1);
 		}
 
-		if (!parentEntry || parentEntry.pgid != parentPID) {
+		if (usePGID && (!parentEntry || parentEntry.pgid != parentPID)) {
 			if (options.debug && usePGID) {
 				if (!parentEntry) {
 					debug("Parent " + cy("pid=" + parentPID) + " is dead " + r(".usePGID = false") + " for getting children");
@@ -132,6 +150,7 @@ function getProcessChildren(parentPID, options, callback) {
 			usePGID = false;
 		}
 
+		var children = {};
 		ps.sort(function (a, b) { return a.pid - b.pid; }).forEach(function (entry) {
 			if (entry.ppid == parentPID || children[entry.ppid]) {
 				children[entry.pid] = entry;
@@ -140,16 +159,14 @@ function getProcessChildren(parentPID, options, callback) {
 				children[entry.pid] = entry;
 			}
 		});
-		var childPIDs = Object.keys(children).map(Number);
-		callback(null, childPIDs);
+		callback(null, Object.keys(children).map(Number));
 	});
 }
 
 function checkDead(pid, callback) {
-	childProcess.exec("ps -A -o pid", { encoding: "utf8" }, function (err, psOutput) {
+	getProcessesList(function (err, ps) {
 		if (err) { return callback(err); }
 
-		var ps = parsePSOutput(["pid"], psOutput);
 		var isDead = !ps.find(function (entry) { return entry.pid == pid;});
 		callback(null, isDead);
 	});
