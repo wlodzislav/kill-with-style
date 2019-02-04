@@ -3,14 +3,26 @@ var kill = require("../index");
 var childProcess = require("child_process");
 var chalk = require("chalk");
 
+function getProcessesNamesSync(callback) {
+	var cmd = "ps -A -o command";
+
+	if (process.platform == "win32") {
+		cmd = "wmic PROCESS GET Name";
+	}
+
+	var output = childProcess.execSync(cmd, { encoding: "utf8" });
+
+	return output.split("\n").slice(1).filter(Boolean);
+}
+
 function isSpawned(name) {
-	var ps = childProcess.execSync("ps -A -o command", { encoding: "utf8" });
-	return ps.indexOf(name) != -1;
+	var ps = getProcessesNamesSync();
+	return ps.find(function (p) { return p.indexOf(name) != -1; });
 }
 
 function spawnedNumber(name) {
-	var pids = childProcess.execSync("ps -A -o pid,command | grep " + name + " | grep -v grep | awk '{print $1}'", { shell: true, encoding: "utf8" });
-	return pids.split("\n").filter(Boolean).length;
+	var ps = getProcessesNamesSync();
+	return ps.filter(function (p) { return p.indexOf(name) != -1; }).length;
 }
 
 function isKilled(name) {
@@ -18,12 +30,14 @@ function isKilled(name) {
 }
 
 function killBash(name) {
-	try {
-		var pids = childProcess.execSync("ps -A -o pid,command | grep " + name + " | grep -v grep | awk '{print $1}'", { shell: true, encoding: "utf8" });
-		if (pids.length) {
-			childProcess.execSync("kill " + pids.split("\n").join(" "), { shell: true, encoding: "utf8" })
+	if (process.platform != "win32") {
+		try {
+			var pids = childProcess.execSync("ps -A -o pid,command | grep " + name + " | grep -v grep | awk '{print $1}'", { shell: true, encoding: "utf8" });
+			if (pids.length) {
+				childProcess.execSync("kill " + pids.split("\n").join(" "), { shell: true, encoding: "utf8" })
+			}
+		} catch (err) {
 		}
-	} catch (err) {
 	}
 }
 
@@ -88,8 +102,10 @@ function assertEqualsDelta(actual, expected, delta) {
 }
 
 if (isSpawned("kws-parent") || isSpawned("kws-child")) {
-	console.log(chalk.red("Try to kill kws-* processes from the previous run"));
-	killBash("kws-");
+	if (process.platform != "win32") {
+		console.log(chalk.red("Try to kill kws-* processes from the previous run"));
+		killBash("kws-");
+	}
 	if (isSpawned("kws-parent") || isSpawned("kws-child")) {
 		console.error(chalk.red("Error: Can't run tests, kill all kws-* processes manually"));
 		process.exit(1);
@@ -293,7 +309,7 @@ describe(".retryCount", function () {
 			retries += 1;
 		});
 		onMessage(child, "running", function () {
-			kill(child.pid, { retryCount: 3, debug: false }, function (err) {
+			kill(child.pid, { retryCount: 3 }, function (err) {
 				assert.equal(retries, 3);
 				killCallback(done, err);
 			});
@@ -630,6 +646,7 @@ describe(".timeout", function () {
 		child.on("error", done);
 		assert(isSpawned("kws-parent"));
 		onMessage(child, "running", function () {
+			// HACK: hook into debug output of kill()
 			var _log = console.log;
 			console.log = function () {
 				//_log.apply(console, arguments);
