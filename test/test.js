@@ -3,30 +3,35 @@ var kill = require("../index");
 var childProcess = require("child_process");
 var chalk = require("chalk");
 
-function getProcessesNamesSync(callback) {
+function isSpawnedName(name) {
 	var cmd = "ps -A -o command";
+	var output = childProcess.execSync(cmd, { encoding: "utf8" });
+	var ps = output.split("\n").slice(1).filter(Boolean);
+	return ps.find(function (p) { return p.indexOf(name) != -1; });
+}
+
+function getProcessesPIDsSync(callback) {
+	var cmd = "ps -A -o pid";
 
 	if (process.platform == "win32") {
-		cmd = "wmic PROCESS GET Name";
+		cmd = "wmic PROCESS GET ProcessId";
 	}
 
 	var output = childProcess.execSync(cmd, { encoding: "utf8" });
 
-	return output.split("\n").slice(1).filter(Boolean);
+	return output.split(/[\n\r]+/).slice(1).filter(Boolean).map(Number);
 }
 
-function isSpawned(name) {
-	var ps = getProcessesNamesSync();
-	return ps.find(function (p) { return p.indexOf(name) != -1; });
+function isSpawnedPID(pid) {
+	var pids = getProcessesPIDsSync();
+	return pids.indexOf(pid) != -1;
 }
 
-function spawnedNumber(name) {
-	var ps = getProcessesNamesSync();
-	return ps.filter(function (p) { return p.indexOf(name) != -1; }).length;
-}
-
-function isKilled(name) {
-	return !isSpawned(name);
+function isKilledPID(pid) {
+	if (Array.isArray(pid)) {
+		return pid.every(isKilledPID);
+	}
+	return !isSpawnedPID(pid);
 }
 
 function killBash(name) {
@@ -46,15 +51,7 @@ function killCallback(done, err) {
 		err = arguments[0];
 		done = function () {};
 	}
-	if (err) {
-		return done(err);
-	}
-	if (!isKilled("kws-parent")) {
-		return done(new Error("Not killed"));
-	}
-	if (!isKilled("kws-child")) {
-		return done(new Error("Not killed"));
-	}
+	if (err) { return done(err); }
 	done();
 }
 
@@ -74,11 +71,15 @@ function onMessage(parent, message, callback) {
 	});
 }
 
-function waitFor(predicat, callback) {
+function waitForNChildren(parent, n, callback) {
+	var children = [];
+	onMessage(parent, "child-running", function (pid) {
+		children.push(pid);
+	});
 	var interval = setInterval(function () {
-		if (predicat()) {
+		if (children.length == n) {
 			clearInterval(interval);
-			callback();
+			callback(children);
 		}
 	}, 50);
 }
@@ -101,87 +102,128 @@ function assertEqualsDelta(actual, expected, delta) {
 	}
 }
 
-if (isSpawned("kws-parent") || isSpawned("kws-child")) {
-	if (process.platform != "win32") {
-		console.log(chalk.red("Try to kill kws-* processes from the previous run"));
-		killBash("kws-");
-	}
-	if (isSpawned("kws-parent") || isSpawned("kws-child")) {
+if (process.platform != "win32" && isSpawnedName("kws-helper")) {
+	console.error(chalk.red("Try to kill kws-* processes from the previous run"));
+	killBash("kws-helper");
+	if (isSpawnedName("kws-helper")) {
 		console.error(chalk.red("Error: Can't run tests, kill all kws-* processes manually"));
 		process.exit(1);
 	}
 }
 
-afterEach(function () {
-	killBash("kws-");
-});
-
-beforeEach(function () {
-	if(isSpawned("kws-parent") || isSpawned("kws-child")) {
-		throw new Error("Error: Can't run tests, kill all kws-* processes manually");
+function run(cliArguments, options) {
+	if (arguments.length == 1 && typeof(arguments[0]) !== "string") {
+		options = arguments[0];
+		cliArguments = "";
 	}
-});
+	cliArguments = cliArguments || "";
+	options = options || {};
+	options = Object.assign({ cwd: __dirname, shell: true }, options);
+	var cmd = "node kws-helper.js " + cliArguments;
+
+	if (process.platform == "win32") {
+		cmd = "node.exe kws-helper.js " + cliArguments;
+	}
+
+	var child = childProcess.spawn(cmd, options);
+	child.stderr.on("data", function (data) {
+		console.error(data.toString());
+		throw new Error("Stderr output from spawned helper");
+	});
+	return child;
+}
+
+if (process.platform != "win32") {
+	afterEach(function () {
+		killBash("kws-helper");
+	});
+
+	beforeEach(function () {
+		if(isSpawnedName("kws-helper")) {
+			throw new Error("Error: Can't run tests, kill all kws-* processes manually");
+		}
+	});
+}
 
 describe("kill", function () {
 	it("not detached", function (done) {
-		var child = childProcess.spawn("./kws-parent", { cwd: __dirname });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run();
+		assert(isSpawnedPID(child.pid));
 
 		onMessage(child, "running", function () {
-			kill(child.pid, killCallback.bind(null, done));
+			kill(child.pid, function (err) {
+				assert(isKilledPID(child.pid));
+				done(err);
+			});
 		});
 	});
 
 	it("detached", function (done) {
-		var child = childProcess.spawn("./kws-parent", {
-			cwd: __dirname,
-			detached: true
-		});
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run({ detached: true });
+		
+		assert(isSpawnedPID(child.pid));
 
 		onMessage(child, "running", function () {
-			kill(child.pid, killCallback.bind(null, done));
+			kill(child.pid, function (err) {
+				if (err) { return done(err); }
+				assert(isKilledPID(child.pid));
+				done();
+			});
 		});
 	});
 
-	it("inside shell", function (done) {
-		var child = childProcess.spawn("./kws-parent", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+	if (process.platform != "win32") {
+		it("not inside shell", function (done) {
+			var child = childProcess.spawn("node", ["kws-helper.js"], { cwd: __dirname });
+			
+			assert(isSpawnedPID(child.pid));
 
-		onMessage(child, "running", function () {
-			kill(child.pid, killCallback.bind(null, done));
+			onMessage(child, "running", function () {
+				kill(child.pid, function (err) {
+					if (err) { return done(err); }
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
 		});
-	});
+	}
 
 	it("with children", function (done) {
-		var child = childProcess.spawn("./kws-parent --children 2", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "spawned-children", function () {
-			assert.equal(spawnedNumber("kws-child"), 2);
-			kill(child.pid, killCallback.bind(null, done));
+		var child = run("--children 2");
+		
+		assert(isSpawnedPID(child.pid));
+
+		waitForNChildren(child, 2, function (children) {
+			kill(child.pid, function (err) {
+				if (err) { return done(err); }
+				assert(isKilledPID(child.pid));
+				assert(isKilledPID(children));
+				done();
+			});
 		});
 	});
 
 	it("children with children", function (done) {
-		var child = childProcess.spawn("./kws-parent --children 2,1", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		waitFor(function () {
-			return spawnedNumber("kws-child") == 4;
-		}, function () {
-			kill(child.pid, killCallback.bind(null, done));
+		var child = run("--children 2,1");
+		
+		assert(isSpawnedPID(child.pid));
+
+		waitForNChildren(child, 4, function (children) {
+			kill(child.pid, function (err) {
+				if (err) { return done(err); }
+				assert(isKilledPID(child.pid));
+				assert(isKilledPID(children));
+				done();
+			});
 		});
 	});
 
 	it("allow process kill own children on exit", function (done) {
-		var child = childProcess.spawn("./kws-parent --children 2 --kill-children", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "running", function () {
+		var child = run("--children 2 --kill-children");
+		
+		assert(isSpawnedPID(child.pid));
+
+		waitForNChildren(child, 2, function (children) {
 			// HACK: hook into debug output of kill()
 			var _log = console.log;
 			var killOutput = "";
@@ -192,8 +234,11 @@ describe("kill", function () {
 			};
 			kill(child.pid, { debug: true }, function (err) {
 				console.log = _log;
+				if (err) { return done(err); }
 				assert.equal((killOutput.match(/Send/g) || []).length, 1);
-				killCallback(done, err);
+				assert(isKilledPID(child.pid));
+				assert(isKilledPID(children));
+				done();
 			});
 		});
 	});
@@ -201,81 +246,96 @@ describe("kill", function () {
 
 describe(".signal", function () {
 	it(".signal=SIGTERM, retries = 0", function (done) {
-		var child = childProcess.spawn("./kws-parent", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run();
+		
+		assert(isSpawnedPID(child.pid));
+
 		var signals = [];
 		onMessage(child, "signal", function (signal) {
 			signals.push(signal);
 		});
 		onMessage(child, "running", function () {
 			kill(child.pid, { signal: "SIGTERM"}, function (err) {
+				if (err) { return done(err); }
 				assert.deepEqual(signals, ["SIGTERM"]);
-				killCallback(done, err);
+				assert(isKilledPID(child.pid));
+				done();
 			});
 		});
 	});
 
 	it(".signal=SIGTERM, retries = 2", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 2", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run("--retries 2");
+		
+		assert(isSpawnedPID(child.pid));
+
 		var signals = [];
 		onMessage(child, "signal", function (signal) {
 			signals.push(signal);
 		});
 		onMessage(child, "running", function () {
 			kill(child.pid, { signal: "SIGTERM", retryCount: 2 }, function (err) {
+				if (err) { return done(err); }
 				assert.deepEqual(signals, ["SIGTERM", "SIGTERM", "SIGTERM"]);
-				killCallback(done, err);
+				assert(isKilledPID(child.pid));
+				done();
 			});
 		});
 	});
 
 	it(".signal=[SIGINT,SIGTERM], retries = 2", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 2", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run("--retries 2");
+		
+		assert(isSpawnedPID(child.pid));
+
 		var signals = [];
 		onMessage(child, "signal", function (signal) {
 			signals.push(signal);
 		});
 		onMessage(child, "running", function () {
 			kill(child.pid, { signal: ["SIGINT", "SIGTERM"], retryCount: 2 }, function (err) {
+				if (err) { return done(err); }
 				assert.deepEqual(signals, ["SIGINT", "SIGTERM", "SIGTERM"]);
-				killCallback(done, err);
+				assert(isKilledPID(child.pid));
+				done();
 			});
 		});
 	});
 
 	it(".signal=[SIGINT,SIGTERM,SIGTERM], retries = 2", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 2", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run("--retries 2");
+		
+		assert(isSpawnedPID(child.pid));
+
 		var signals = [];
 		onMessage(child, "signal", function (signal) {
 			signals.push(signal);
 		});
 		onMessage(child, "running", function () {
 			kill(child.pid, { signal: ["SIGINT", "SIGTERM", "SIGTERM"], retryCount: 2 }, function (err) {
+				if (err) { return done(err); }
 				assert.deepEqual(signals, ["SIGINT", "SIGTERM", "SIGTERM"]);
-				killCallback(done, err);
+				assert(isKilledPID(child.pid));
+				done();
 			});
 		});
 	});
 
 	it(".signal=SIGKILL, retries = 2, should kill on first try", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 2", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run("--retries 2");
+		
+		assert(isSpawnedPID(child.pid));
+
 		var signals = [];
 		onMessage(child, "signal", function (signal) {
 			signals.push(signal);
 		});
 		onMessage(child, "running", function () {
 			kill(child.pid, { signal: "SIGKILL", retryCount: 2 }, function (err) {
+				if (err) { return done(err); }
 				assert.deepEqual(signals, []);
-				killCallback(done, err);
+				assert(isKilledPID(child.pid));
+				done();
 			});
 		});
 	});
@@ -283,9 +343,10 @@ describe(".signal", function () {
 
 describe(".retryCount", function () {
 	it("retryCount = 3, retries = 4", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 4", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run("--retries 4");
+		
+		assert(isSpawnedPID(child.pid));
+
 		var retries = 0;
 		onMessage(child, "retry", function () {
 			retries += 1;
@@ -294,24 +355,29 @@ describe(".retryCount", function () {
 			kill(child.pid, { retryCount: 3}, function (err) {
 				assert.equal(retries, 3);
 				kill(child.pid, { retryCount: 0}, function (err) {
-					killCallback(done, err);
+					if (err) { return done(err); }
+					assert(isKilledPID(child.pid));
+					done();
 				});
 			});
 		});
 	});
 
 	it("retryCount = 3, retries = 3", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 3", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run("--retries 3");
+		
+		assert(isSpawnedPID(child.pid));
+
 		var retries = 0;
 		onMessage(child, "retry", function () {
 			retries += 1;
 		});
 		onMessage(child, "running", function () {
 			kill(child.pid, { retryCount: 3 }, function (err) {
+				if (err) { return done(err); }
 				assert.equal(retries, 3);
-				killCallback(done, err);
+				assert(isKilledPID(child.pid));
+				done();
 			});
 		});
 	});
@@ -319,9 +385,10 @@ describe(".retryCount", function () {
 
 describe(".retryInterval", function () {
 	it("retryInterval = 1000", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 3", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run("--retries 3");
+		
+		assert(isSpawnedPID(child.pid));
+
 		var lastTryDate;
 		var retryInterval = [];
 		onMessage(child, "signal", function (signal, date) {
@@ -332,16 +399,19 @@ describe(".retryInterval", function () {
 		});
 		onMessage(child, "running", function () {
 			kill(child.pid, { retryCount: 3, retryInterval: 1000 }, function (err) {
+				if (err) { return done(err); }
 				assertEqualsDelta(retryInterval, [1000, 1000, 1000], 500);
-				killCallback(done, err);
+				assert(isKilledPID(child.pid));
+				done();
 			});
 		});
 	});
 
 	it("retryInterval = [1000, 100, 2000]", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 3", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
+		var child = run("--retries 3");
+		
+		assert(isSpawnedPID(child.pid));
+
 		var lastTryDate;
 		var retryInterval = [];
 		onMessage(child, "signal", function (signal, date) {
@@ -352,8 +422,238 @@ describe(".retryInterval", function () {
 		});
 		onMessage(child, "running", function () {
 			kill(child.pid, { retryCount: 3, retryInterval: [1000, 100, 2000] }, function (err) {
+				if (err) { return done(err); }
 				assertEqualsDelta(retryInterval, [1000, 100, 2000], 500);
-				killCallback(done, err);
+				assert(isKilledPID(child.pid));
+				done();
+			});
+		});
+	});
+});
+
+describe(".timeout", function () {
+	it("timeout = 1000, delay = 0", function (done) {
+		var child = run();
+		
+		assert(isSpawnedPID(child.pid));
+
+		onMessage(child, "running", function () {
+			var start = Date.now();
+			kill(child.pid, { timeout: 1000 }, function (err) {
+				if (err) { return done(err); }
+				assertEqualsDelta(Date.now() - start, 0, 500);
+				assert(isKilledPID(child.pid));
+				done();
+
+			});
+		});
+	});
+
+	it("timeout = 1000, delay = 2000", function (done) {
+		var child = run("--delay 1100");
+		
+		assert(isSpawnedPID(child.pid));
+
+		onMessage(child, "running", function () {
+			var start = Date.now();
+			kill(child.pid, { timeout: 1000 }, function (err) {
+				assert(err);
+				assertEqualsDelta(Date.now() - start, 1000, 500);
+				kill(child.pid, function (err) {
+					if (err) { return done(err); }
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
+		});
+	});
+
+	it("no retries and checks after timeout", function (done) {
+		var child = run("--delay 2000");
+		
+		assert(isSpawnedPID(child.pid));
+
+		onMessage(child, "running", function () {
+			// HACK: hook into debug output of kill()
+			var _log = console.log;
+			console.log = function () {
+				//_log.apply(console, arguments);
+			};
+			kill(child.pid, { timeout: 1000, debug: true }, function () {
+				console.log = function (text) {
+					if (("" + arguments[0]).startsWith("DEBUG")) {
+						//_log.apply(console, arguments);
+						console.log = _log;
+						if (arguments[0].match(/Check|Retry|Send|Kill/)) {
+							done(new Error("Output after timeout: \"" + text + "\""));
+						}
+					} else {
+						_log.apply(console, arguments);
+					}
+				};
+				setTimeout(function () {
+					console.log = _log;
+					kill(child.pid, function (err) {
+						if (err) { return done(err); }
+						assert(isKilledPID(child.pid));
+						done();
+					});
+				}, 1000);
+			});
+		});
+	});
+});
+
+describe(".usePGID", function () {
+	if (process.platform == "win32") {
+		it("Windows, overwrite .usePGID=false", function (done) {
+			var child = run({ detached: true });
+			
+			assert(isSpawnedPID(child.pid));
+
+			onMessage(child, "running", function () {
+				// HACK: hook into debug output of kill()
+				var _log = console.log;
+				var killOutput = "";
+				console.log = function () {
+					killOutput += [].join.call(arguments, " "); + "\n";
+					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+					//_log.apply(console, arguments);
+				};
+				kill(child.pid, { usePGID: true, debug: true }, function (err) {
+					console.log = _log;
+					if (err) { return done(err); }
+					assert.notEqual(killOutput.indexOf(".usePGID = false"), -1);
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
+		});
+	}
+
+	if (process.platform != "win32") {
+		it("not detached process, overwrite .usePGID=false", function (done) {
+			var child = run();
+			
+			assert(isSpawnedPID(child.pid));
+
+			onMessage(child, "running", function () {
+				// HACK: hook into debug output of kill()
+				var _log = console.log;
+				var killOutput = "";
+				console.log = function () {
+					killOutput += [].join.call(arguments, " "); + "\n";
+					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+					//_log.apply(console, arguments);
+				};
+				kill(child.pid, { usePGID: true, debug: true }, function (err) {
+					console.log = _log;
+					if (err) { return done(err); }
+					assert.notEqual(killOutput.indexOf(".usePGID = false"), -1);
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
+		});
+
+		it("detached process, .usePGID=true", function (done) {
+			var child = run({ detached: true });
+			
+			assert(isSpawnedPID(child.pid));
+
+			onMessage(child, "running", function () {
+				// HACK: hook into debug output of kill()
+				var _log = console.log;
+				var killOutput = "";
+				console.log = function () {
+					killOutput += [].join.call(arguments, " "); + "\n";
+					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+					//_log.apply(console, arguments);
+				};
+				kill(child.pid, { usePGID: true, debug: true }, function (err) {
+					console.log = _log;
+					if (err) { return done(err); }
+					assert.equal(killOutput.indexOf(".usePGID = false"), -1);
+					assert(isKilledPID(child.pid));
+					done();
+				});
+			});
+		});
+	}
+});
+
+describe(".checkInterval", function () {
+	it(".checkInterval + .retryCount = 0", function (done) {
+		var child = run("--delay 1100");
+		
+		assert(isSpawnedPID(child.pid));
+
+		onMessage(child, "running", function () {
+			// HACK: hook into debug output of kill()
+			var _log = console.log;
+			var killOutput = "";
+			console.log = function () {
+				killOutput += [].join.call(arguments, " "); + "\n";
+				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+				//_log.apply(console, arguments);
+			};
+			kill(child.pid, { debug: true, retryCount: 0, timeout: 3000, checkInterval: 500 }, function (err) {
+				console.log = _log;
+				if (err) { return done(err); }
+				assert.equal((killOutput.match(/Check/g) || []).length, 4);
+				assert(isKilledPID(child.pid));
+				done();
+
+			});
+		});
+	});
+
+	it(".checkInterval < .retryInterval", function (done) {
+		var child = run("--retries 1");
+		
+		assert(isSpawnedPID(child.pid));
+
+		onMessage(child, "running", function () {
+			// HACK: hook into debug output of kill()
+			var _log = console.log;
+			var killOutput = "";
+			console.log = function () {
+				killOutput += [].join.call(arguments, " "); + "\n";
+				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+				//_log.apply(console, arguments);
+			};
+			kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 500, retryInterval: 1999 }, function (err) {
+				console.log = _log;
+				if (err) { return done(err); }
+				assert.equal((killOutput.match(/Check/g) || []).length, 4);
+				assert(isKilledPID(child.pid));
+				done();
+			});
+		});
+	});
+
+	it(".checkInterval > .retryInterval", function (done) {
+		var child = run("--retries 1");
+		
+		assert(isSpawnedPID(child.pid));
+
+		onMessage(child, "running", function () {
+			// HACK: hook into debug output of kill()
+			var _log = console.log;
+			var killOutput = "";
+			console.log = function () {
+				killOutput += [].join.call(arguments, " "); + "\n";
+				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+				//_log.apply(console, arguments);
+			};
+			kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 1500, retryInterval: 1000 }, function (err) {
+				console.log = _log;
+				if (err) { return done(err); }
+				var checksBeforeRetry = (killOutput.slice(0, killOutput.indexOf("Retry")).match(/Check/g) || []).length
+				assert.equal(checksBeforeRetry, 1);
+				assert(isKilledPID(child.pid));
+				done();
+
 			});
 		});
 	});
@@ -606,182 +906,5 @@ describe("options priority", function () {
 		};
 
 		assert.deepEqual(actual, expected);
-	});
-
-});
-
-describe(".timeout", function () {
-	it("timeout = 1000, delay = 0", function (done) {
-		var child = childProcess.spawn("./kws-parent", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "running", function () {
-			var start = Date.now();
-			kill(child.pid, { timeout: 1000 }, function (err) {
-				var total = Date.now() - start;
-				assertEqualsDelta(total, 0, 500);
-				assert(!err);
-				killCallback(done, err);
-			});
-		});
-	});
-
-	it("timeout = 1000, delay = 2000", function (done) {
-		var child = childProcess.spawn("./kws-parent --delay 1100", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "running", function () {
-			var start = Date.now();
-			kill(child.pid, { timeout: 1000 }, function (err) {
-				var total = Date.now() - start;
-				assertEqualsDelta(total, 1000, 500);
-				assert(err);
-				kill(child.pid, killCallback.bind(null, done));
-			});
-		});
-	});
-
-	it("no retries and checks after timeout", function (done) {
-		var child = childProcess.spawn("./kws-parent --delay 2000", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			console.log = function () {
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { timeout: 1000, debug: true }, function () {
-				console.log = function (text) {
-					if (("" + arguments[0]).startsWith("DEBUG")) {
-						//_log.apply(console, arguments);
-						console.log = _log;
-						if (arguments[0].match(/Check|Retry|Send|Kill/)) {
-							done(new Error("Output after timeout: \"" + text + "\""));
-						}
-					} else {
-						_log.apply(console, arguments);
-					}
-				};
-				setTimeout(function () {
-					console.log = _log;
-					kill(child.pid, killCallback.bind(null, done));
-				}, 1000);
-			});
-		});
-	});
-});
-
-describe(".usePGID", function () {
-	it("not detached child, overwrite .usePGID = false", function (done) {
-		var child = childProcess.spawn("./kws-parent", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			var killOutput = "";
-			console.log = function () {
-				killOutput += [].join.call(arguments, " "); + "\n";
-				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { debug: true }, function (err) {
-				console.log = _log;
-				assert.notEqual(killOutput.indexOf(".usePGID = false"), -1);
-				killCallback(done, err);
-			});
-		});
-	});
-
-	it("detached child", function (done) {
-		var child = childProcess.spawn("./kws-parent", {
-			cwd: __dirname,
-			shell: true,
-			detached: true
-		});
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			var killOutput = "";
-			console.log = function () {
-				killOutput += [].join.call(arguments, " "); + "\n";
-				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { debug: true }, function (err) {
-				console.log = _log;
-				assert.equal(killOutput.indexOf(".usePGID = false"), -1);
-				killCallback(done, err);
-			});
-		});
-	});
-});
-
-describe(".checkInterval", function () {
-	it(".checkInterval + .retryCount = 0", function (done) {
-		var child = childProcess.spawn("./kws-parent --delay 1100", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			var killOutput = "";
-			console.log = function () {
-				killOutput += [].join.call(arguments, " "); + "\n";
-				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { debug: true, retryCount: 0, timeout: 3000, checkInterval: 500 }, function (err) {
-				console.log = _log;
-				assert.equal((killOutput.match(/Check/g) || []).length, 4);
-				killCallback(done, err);
-			});
-		});
-	});
-
-	it(".checkInterval < .retryInterval", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 1", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			var killOutput = "";
-			console.log = function () {
-				killOutput += [].join.call(arguments, " "); + "\n";
-				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 500, retryInterval: 1999 }, function (err) {
-				console.log = _log;
-				assert.equal((killOutput.match(/Check/g) || []).length, 4);
-				killCallback(done, err);
-			});
-		});
-	});
-
-	it(".checkInterval > .retryInterval", function (done) {
-		var child = childProcess.spawn("./kws-parent --retries 1", { cwd: __dirname, shell: true });
-		child.on("error", done);
-		assert(isSpawned("kws-parent"));
-		onMessage(child, "running", function () {
-			// HACK: hook into debug output of kill()
-			var _log = console.log;
-			var killOutput = "";
-			console.log = function () {
-				killOutput += [].join.call(arguments, " "); + "\n";
-				if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
-				//_log.apply(console, arguments);
-			};
-			kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 1500, retryInterval: 1000 }, function (err) {
-				console.log = _log;
-				var checksBeforeRetry = (killOutput.slice(0, killOutput.indexOf("Retry")).match(/Check/g) || []).length
-				assert.equal(checksBeforeRetry, 1);
-				killCallback(done, err);
-			});
-		});
 	});
 });
