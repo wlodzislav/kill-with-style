@@ -134,7 +134,7 @@ function getProcessChildren(parentPID, options, callback) {
 
 		var parentEntryIndex = ps.findIndex(function (entry) { return entry.pid == parentPID; });
 		if (parentEntryIndex != -1) {
-			parentEntry = ps[parentEntryIndex];
+			var parentEntry = ps[parentEntryIndex];
 			ps.splice(parentEntryIndex, 1);
 		}
 
