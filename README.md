@@ -76,7 +76,9 @@ Send `SIGINT`, wait 10000, send `SIGKILL`, wait 1000 until timeout.
 
 [.checkInterval](#.checkInterval) - interval between checks if process is dead
 
-[.usePGID](#.usePGID) - use PGID on *nix systems
+[.usePGID](#.usePGID) - use PGID on mac/linux
+
+[.killChildrenImmediately](#.killChildrenImmediately) - kill children immediately, don't wait for parent to die
 
 All options except `.timeout` are applied when trying to kill children.
 
@@ -184,6 +186,14 @@ Used only if process is detached, pid == pgid! When process is in own group all 
 Will use process group ID on mac/linux to track all children.
 
 Isn't used on Windows.
+
+### .killChildrenImmediately <a name=".killChildrenImmediately" href="#.killChildrenImmediately">#</a>
+
+By default = `false`.
+
+If `true` will try to kill children and parent simultaneously.
+
+If `false` will try to kill parent first and after it's dead will kill children. Useful for graceful shutdown when processes clean own children.
 
 ## Getting Processes
 

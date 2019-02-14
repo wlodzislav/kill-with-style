@@ -84,6 +84,7 @@ function normalizeOptions(options) {
 	options.checkInterval = options.checkInterval || 50;
 	options.signal = fillLast(options.signal || ["SIGINT"], options.retryCount + 1);
 	options.usePGID = options.usePGID || true;
+	options.killChildrenImmediately = options.killChildrenImmediately || false;
 	return options;
 }
 
@@ -274,36 +275,47 @@ function kill(pid, options, callback) {
 			children = children.filter(function (c) { return pidsScheduled.indexOf(c) == -1; });
 
 			if (options.debug) {
-				debug("Try to kill " + cy("pid=" + pid) + (children.length ? " with children " + cy(children.join(", ")) : ""));
+				debug("Try to kill parent " + cy("pid=" + pid) + (children.length ? " with children " + cy(children.join(", ")) : ""));
 			}
 
-			tryKillParent(pid, timeoutDate, options, function (err) {
-				if (err) { return callback(err); }
 
+			if (options.killChildrenImmediately) {
+				async.parallel([
+					tryKillParent.bind(null, pid, timeoutDate, options),
+					tryKillChildren.bind(null, children)
+				], callback);
+			} else {
+				tryKillParent(pid, timeoutDate, options, function (err) {
+					if (err) { return callback(err); }
+					tryKillChildren(children, callback);
+				});
+			}
+		});
+	}
+
+	function tryKillChildren(children, callback) {
+		if (options.debug) {
+			var checkStart = Date.now();
+			debug("Try to kill children of " + cy("pid=" + pid));
+		}
+
+		async.each(children, function (pid, callback) {
+			if (options.debug) { debug("Check " + cy("pid=" + pid)); }
+			checkDead(pid, function (err, isDead) {
+				if (err) { return callback(err); }
+				
 				if (options.debug) {
-					var checkStart = Date.now();
-					debug("Try to kill children of " + cy("pid=" + pid));
+					debug("checkDead exec() took " + cy((Date.now() - checkStart) + "ms"));
+					debug(cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive")));
 				}
 
-				async.each(children, function (pid, callback) {
-					if (options.debug) { debug("Check " + cy("pid=" + pid)); }
-					checkDead(pid, function (err, isDead) {
-						if (err) { return callback(err); }
-						
-						if (options.debug) {
-							debug("checkDead exec() took " + cy((Date.now() - checkStart) + "ms"));
-							debug(cy("pid=" + pid) + " " + (isDead ? cy("is dead") : r("is alive")));
-						}
-
-						if (isDead) {
-							callback();
-						} else {
-							tryKillParentWithChildren(pid, callback);
-						}
-					});
-				}, callback);
+				if (isDead) {
+					callback();
+				} else {
+					tryKillParentWithChildren(pid, callback);
+				}
 			});
-		});
+		}, callback);
 	}
 
 	var timeoutTimeout = setTimeout(function () {

@@ -47,6 +47,9 @@ if (program.children) {
 			if (program.log) {
 				cmd += " --log";
 			}
+			if (program.delay) {
+				cmd += " --delay " + program.delay;
+			}
 			if (program.detached) {
 				cmd += " --detached";
 			}

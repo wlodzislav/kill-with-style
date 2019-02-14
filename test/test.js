@@ -180,6 +180,7 @@ describe("kill", function () {
 
 		onMessage(child, "running", function () {
 			kill(child.pid, function (err) {
+				if (err) { return done(err); }
 				assert(isKilledPID(child.pid));
 				done(err);
 			});
@@ -236,7 +237,6 @@ describe("kill", function () {
 
 		waitForNChildren(child, 2, function (children) {
 			kill(child.pid, function (err) {
-				assert(isKilledPID(child.pid));
 				if (err) { return done(err); }
 				assert(isKilledPID(child.pid));
 				assert(isKilledPID(children));
@@ -698,11 +698,66 @@ if (process.platform != "win32") {
 				kill(child.pid, { debug: true, retryCount: 1, timeout: 3000, checkInterval: 1500, retryInterval: 1000 }, function (err) {
 					console.log = _log;
 					if (err) { return done(err); }
-					var checksBeforeRetry = (killOutput.slice(0, killOutput.indexOf("Retry")).match(/Check/g) || []).length
+					var checksBeforeRetry = (killOutput.slice(0, killOutput.indexOf("Retry")).match(/Check/g) || []).length;
 					assert.equal(checksBeforeRetry, 1);
 					assert(isKilledPID(child.pid));
 					done();
 
+				});
+			});
+		});
+	});
+}
+
+if (process.platform != "win32") {
+	describe(".killChildrenImmediately", function () {
+		it(".killChildrenImmediately=false", function (done) {
+			var child = run("--children 2 --delay 1000");
+			
+			assert(isSpawnedPID(child.pid));
+
+			waitForNChildren(child, 2, function (children) {
+				// HACK: hook into debug output of kill()
+				var _log = console.log;
+				var killOutput = "";
+				console.log = function () {
+					killOutput += [].join.call(arguments, " ") + "\n";
+					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+					//_log.apply(console, arguments);
+				};
+				kill(child.pid, { killChildrenImmediately: false, timeout: 5000, debug: true, retryCount: 0 }, function (err) {
+					console.log = _log;
+					if (err) { return done(err); }
+					var triesBeforeKilled = (killOutput.slice(0, killOutput.indexOf("Killed")).match(/Try to kill parent/g) || []).length;
+					assert.equal(triesBeforeKilled, 1);
+					assert(isKilledPID(child.pid));
+					assert(isKilledPID(children));
+					done();
+				});
+			});
+		});
+
+		it(".killChildrenImmediately=true", function (done) {
+			var child = run("--children 2 --delay 1000");
+			
+			assert(isSpawnedPID(child.pid));
+
+			waitForNChildren(child, 2, function (children) {
+				// HACK: hook into debug output of kill()
+				var _log = console.log;
+				var killOutput = "";
+				console.log = function () {
+					killOutput += [].join.call(arguments, " ") + "\n";
+					if (!("" + arguments[0]).startsWith("DEBUG")) { _log.apply(console, arguments); }
+					//_log.apply(console, arguments);
+				};
+				kill(child.pid, { killChildrenImmediately: true, timeout: 5000, debug: true, retryCount: 0 }, function (err) {
+					if (err) { return done(err); }
+					var triesBeforeKilled = (killOutput.slice(0, killOutput.indexOf("Killed")).match(/Try to kill parent/g) || []).length;
+					assert.equal(triesBeforeKilled, 3);
+					assert(isKilledPID(child.pid));
+					assert(isKilledPID(children));
+					done();
 				});
 			});
 		});
@@ -721,7 +776,8 @@ describe("options priority", function () {
 			timeout: 2000,
 			signal: ["SIGINT", "SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -738,7 +794,8 @@ describe("options priority", function () {
 			timeout: 100 + 200 + 200,
 			signal: ["SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -756,7 +813,8 @@ describe("options priority", function () {
 			timeout: 100 + 100 + 100,
 			signal: ["SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -774,7 +832,8 @@ describe("options priority", function () {
 			timeout: 100 + 200 + 200 + 200,
 			signal: ["SIGINT", "SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -792,7 +851,8 @@ describe("options priority", function () {
 			timeout: 100 + 200 + 200,
 			signal: ["SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -810,7 +870,8 @@ describe("options priority", function () {
 			timeout: 1500,
 			signal: ["SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -828,7 +889,8 @@ describe("options priority", function () {
 			timeout: 400,
 			signal: ["SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -846,7 +908,8 @@ describe("options priority", function () {
 			timeout: 100 + 200 + 200,
 			signal: ["SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -865,7 +928,8 @@ describe("options priority", function () {
 			timeout: 300,
 			signal: ["SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -884,7 +948,8 @@ describe("options priority", function () {
 			timeout: 300,
 			signal: ["SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -901,7 +966,8 @@ describe("options priority", function () {
 			timeout: 2000,
 			signal: ["SIGINT", "SIGINT", "SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -918,7 +984,8 @@ describe("options priority", function () {
 			timeout: 2000,
 			signal: ["SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -935,7 +1002,8 @@ describe("options priority", function () {
 			timeout: 1000,
 			signal: ["SIGINT", "SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);
@@ -952,7 +1020,8 @@ describe("options priority", function () {
 			timeout: 500,
 			signal: ["SIGINT"],
 			checkInterval: 50,
-			usePGID: true
+			usePGID: true,
+			killChildrenImmediately: false
 		};
 
 		assert.deepEqual(actual, expected);

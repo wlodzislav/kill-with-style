@@ -1,6 +1,6 @@
 {
   "name": "kill-with-style",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Kill procesess gracefully with retries, signals and all children",
   "keywords": [
     "kill",
