@@ -143,7 +143,7 @@ function getProcessChildren(parentPID, options, callback) {
 				if (!parentEntry) {
 					debug("Parent " + cy("pid=" + parentPID) + " is dead " + r(".usePGID = false") + " for getting children");
 				}
-				if (parentEntry.pgid != parentPID) {
+				if (parentEntry && parentEntry.pgid != parentPID) {
 					debug("Parent " + cy("pid=" + parentPID) + " pid !== pgid " + r(".usePGID = false") + " for getting children");
 				}
 			}
